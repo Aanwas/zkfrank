@@ -1,0 +1,6 @@
+[package]
+name = "zkfrank"
+type = "bin"
+authors = [""]
+
+[dependencies]
