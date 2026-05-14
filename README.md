@@ -31,6 +31,11 @@ Compile the Noir circuit: nargo: compile
 
 Execution: node index.js
 
+If you want a different age you can change it here 
+```JavaScript
+const input_age = { age: 20 }; // initializing our age
+```
+
 ⚙️ Raspberry Pi Optimizations
 Since ZK proof generation is computationally expensive, this project includes specific tweaks for ARM-based devices:
 
