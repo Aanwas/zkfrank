@@ -1,38 +1,70 @@
 import { Barretenberg, UltraHonkBackend } from '@aztec/bb.js';
 import { Noir } from '@noir-lang/noir_js';
 import { readFile } from 'fs/promises';
+import sqlite3 from "sqlite3";
+import crypto, { createHash } from 'crypto';
 
 async function main(){  
-    try{ 
+    try{
+        // reading zkfrank.json 
         const circuitData = JSON.parse(
         await readFile('./target/zkfrank.json', 'utf8')
-    ); // reading zkfrank.json
+    ); 
 
     console.log("Activating Barretenberg API...")
     const BarretenbergAPI = await Barretenberg.new()
 
-    const backend = new UltraHonkBackend(circuitData.bytecode, BarretenbergAPI); // getting bytecode from zkfrank.json
-    const noir = new Noir(circuitData);  // creating noir
+    // getting bytecode from zkfrank.json
+    const backend = new UltraHonkBackend(circuitData.bytecode, BarretenbergAPI);
+    // creating noir
+    const noir = new Noir(circuitData); 
 
+    // showing small slice of the bytecode
     console.log("The circuit successfully loaded into Node.js!")
-    console.log("Bytecode:", circuitData.bytecode.slice(0, 50 ) + "...") // showing small slice of the bytecode
+    console.log("Bytecode:", circuitData.bytecode.slice(0, 50 ) + "...") 
     
-    const input_age = { age: 20 }; // initializing our age
+    // initializing our age
+    const user_input_data = JSON.parse(
+        await readFile('./user_data.json', 'utf-8')
+    );
 
-    const { witness } = await noir.execute(input_age);  // creating a witness
+    // creating a witness
+    const { witness } = await noir.execute(user_input_data);
     console.log("Witness generated successfully")
 
-    const proof = await backend.generateProof(witness); // asking a backend to generate a proof from our witness
+    // asking a backend to generate a proof from our witness
+    const proof = await backend.generateProof(witness); 
     console.log("ZK Proof:", Buffer.from(proof.proof).toString('hex'))
 
-    const isValid = await backend.verifyProof(proof); // verifying our proof
+    // creating hash of our age
+    const proof_hash = createHash('sha256')
+    .update(Buffer.from(proof.proof))
+    .digest('hex')
+
+    console.log("Hash of the proof:", proof_hash)
+
+    // adding hash of the proof to a database
+    const db = new sqlite3.Database('./proofs.db')
+    db.run(
+        `CREATE TABLE IF NOT EXISTS validations (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            proof_hash TEXT,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )`
+    )
+
+    // verifying our proof
+    const isValid = await backend.verifyProof(proof); 
     if (isValid == true){
         console.log("The verification is true!");
+        db.run("INSERT INTO validations (proof_hash) VALUES (?)", [proof_hash])
     }
     else{
         console.log("Verefication is false.");
     }
+
     await BarretenbergAPI.destroy()
+
 }
 
     catch (error) {
