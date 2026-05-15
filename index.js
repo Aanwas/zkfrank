@@ -25,8 +25,16 @@ async function main(){
     const proof = await backend.generateProof(witness); // asking a backend to generate a proof from our witness
     console.log("ZK Proof:", Buffer.from(proof.proof).toString('hex'))
 
-
+    const isValid = await backend.verifyProof(proof); // verifying our proof
+    if (isValid == true){
+        console.log("The verification is true!");
+    }
+    else{
+        console.log("Verefication is false.");
+    }
+    await BarretenbergAPI.destroy()
 }
+
     catch (error) {
         console.error("Oh no, something broke :(", error);
     }
