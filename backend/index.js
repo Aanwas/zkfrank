@@ -8,7 +8,7 @@ async function main(){
     try{
         // reading zkfrank.json 
         const circuitData = JSON.parse(
-        await readFile('./target/zkfrank.json', 'utf8')
+        await readFile('../circuits/target/zkfrank.json', 'utf8')
     ); 
 
     console.log("Activating Barretenberg API...")
@@ -25,7 +25,7 @@ async function main(){
     
     // initializing our age
     const user_input_data = JSON.parse(
-        await readFile('./user_data.json', 'utf-8')
+        await readFile('../user_data.json', 'utf-8')
     );
 
     // creating a witness
@@ -44,7 +44,7 @@ async function main(){
     console.log("Hash of the proof:", proof_hash)
 
     // adding hash of the proof to a database
-    const db = new sqlite3.Database('./proofs.db')
+    const db = new sqlite3.Database('../database/proofs.db')
     db.run(
         `CREATE TABLE IF NOT EXISTS validations (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
