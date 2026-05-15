@@ -57,7 +57,8 @@ The project automatically initializes and manages a local SQLite database (`proo
    cd zkfrank
 
 2. **Install Node.js dependencies:**
-   ```npm install
+   ```bash
+   npm install
 
 3. **Compile the Noir circuit:**
 
@@ -65,12 +66,13 @@ The project automatically initializes and manages a local SQLite database (`proo
    Create a user_data.json file in the root directory and specift the age:
    ```json
    {
-      "age": enter_any_age
+      "age": "enter_any_age"
    }
    ```
 
 5. **Execution**
-   ```node index.js
+   ```markdown
+   node index.js
 
 ## ⚙️ Raspberry Pi & Backend Optimizations
 Since ZK proof generation is computationally expensive, this project includes specific architectural tweaks for ARM-based and resource-constrained devices:
