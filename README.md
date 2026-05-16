@@ -63,10 +63,11 @@ The project automatically initializes and manages a local SQLite database (`proo
 3. **Compile the Noir circuit:**
 
 4. **Configure User Data:**
-   Create a user_data.json file in the root directory and specift the age:
+   Create a `user_data.json` file in the root directory and specify your age and a secret number (this secret will be used to generate your unique anonymous nullifier)::
    ```json
    {
-      "age": "enter_any_age"
+      "age": 67,
+      "secret": 18613518464 
    }
    ```
 
