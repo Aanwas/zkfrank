@@ -1,44 +1,56 @@
-# ZK-Frank: Zero-Knowledge Age Verification with DB Logging
+# ZK-Frank: Zero-Knowledge ECDSA Signature Verification
 
-A powerful Zero-Knowledge Proof (ZKP) application designed to prove age eligibility without revealing the actual age. This project is optimized to run on resource-constrained devices like the Raspberry Pi and features a secure backend pipeline for proof verification and cryptographic logging.
+A Zero-Knowledge Proof (ZKP) application designed to cryptographically prove the possession of a valid State-issued signature over sensitive data (e.g., a Social Security Number) without revealing the underlying data to the verifier. This project is optimized to run on resource-constrained devices like the Raspberry Pi and features a secure backend pipeline for proof verification and cryptographic logging.
 
-The core Noir circuit ensures the condition: 
-`assert(age > 18);`
+The core Noir circuit utilizes elliptic curve cryptography (secp256r1) to ensure the condition: 
+`assert(is_valid == true);`
 
-The system processes the user's age as a private input, generates a cryptographic proof, verifies it, and securely logs the unique proof hash into a local database. The actual age never leaves the user's local environment.
-
----
-
-## 🔄 How It Works (The Pipeline)
-
-1. **Data Input:** The application reads private user data from a local `user_data.json` file.
-2. **Witness Generation:** The Noir standard library compiles the input into a ZK witness.
-3. **Proof Generation:** The Aztec Barretenberg (UltraHonk) backend generates a cryptographic proof based on the witness and the circuit bytecode.
-4. **Verification:** The system automatically verifies the proof.
-5. **Data Hashing:** If (and only if) the proof is valid, the system creates a deterministic **SHA-256 hash** of the full proof buffer.
-6. **Database Logging:** The unique proof hash and a UTC timestamp are securely written to an **SQLite** database.
+The system processes the user's encrypted data as private inputs, generates a cryptographic proof, verifies it, and securely logs a unique footprint into a local database to prevent Sybil attacks.
 
 ---
 
-## 🛠 Tech Stack
+## Current Development Status: The Prototype
+
+At this stage, the core cryptographic engine is successfully operational. The project can generate standard ECDSA (secp256r1) key pairs, sign data (simulating a State Issuer), and successfully verify that signature inside a Zero-Knowledge circuit using Noir and the Barretenberg backend. 
+
+Please note the following temporary developmental implementations:
+
+* **Mock Data Inputs:** User data (e.g., SSN) is currently hardcoded for circuit testing. Future iterations will dynamically read encrypted data from a physical NFC chip using a Raspberry Pi Waveshare HAT.
+* **Debug Key Exposure:** The State Issuer's private keys are temporarily logged to the terminal for debugging purposes. This will be removed once the architecture is properly split into isolated `Issuer` and `Verifier` modules.
+* **Static Nullifier:** The Noir circuit currently returns a hardcoded `0x01` constant instead of a true cryptographic ZK-hash. The database logic is fully functional, but true Sybil-resistance will be implemented later via Poseidon/Pedersen hashing.
+
+---
+
+## How It Works (The Pipeline)
+
+1. **State Issuance (Mocked):** The system generates a cryptographic ECDSA key pair and signs a mock SSN using the Node.js native `crypto` module (ieee-p1363 standard).
+2. **Data Packaging:** The raw signature, public keys (X and Y coordinates), and the hashed SSN are converted into Noir-compatible byte arrays.
+3. **Witness Generation:** The Noir standard library compiles the inputs into a ZK witness.
+4. **Proof Generation:** The Aztec Barretenberg (UltraHonk) backend generates a zero-knowledge proof based on the witness and the circuit bytecode.
+5. **Verification:** The system automatically verifies the mathematical proof.
+6. **Database Logging:** If the proof is valid, the system securely writes the emitted nullifier and a UTC timestamp into an **SQLite** database.
+
+---
+
+## Tech Stack
 
 * **Language:** Noir (v1.0.0-beta.21)
 * **ZK Backend:** Aztec Barretenberg (UltraHonk)
-* **Runtime:** Node.js (v20+)
+* **Runtime:** Node.js (v20+) with native `crypto` API
 * **Database:** SQLite3
-* **Hardware:** Raspberry Pi 4B (Tested on Raspbian OS)
+* **Hardware:** Raspberry Pi 4B/5 (Tested on Debian/Raspbian OS)
 
 ---
 
-## 📦 Database Structure
+## Database Structure
 
 The project automatically initializes and manages a local SQLite database (`proofs.db`). It contains a `validations` table with the following schema:
 
-| Column Name  | Data Type | Description                                      |
-| :---         | :---      | :---                                             |
-| `id`         | INTEGER   | Primary key with AUTOINCREMENT                   |
-| `proof_hash` | TEXT      | The unique SHA-256 hash of the verified ZK proof |
-| `created_at` | DATETIME  | Verification timestamp stored in **UTC standard**|
+| Column Name  | Data Type | Description                                              |
+| :---         | :---      | :---                                                     |
+| `id`         | INTEGER   | Primary key with AUTOINCREMENT                           |
+| `proof_hash` | TEXT      | The unique nullifier emitted by the Noir circuit         |
+| `created_at` | DATETIME  | Verification timestamp stored in **UTC standard** |
 
 ---
 
@@ -53,37 +65,33 @@ The project automatically initializes and manages a local SQLite database (`proo
 
 1. **Clone the repository:**
    ```bash
-   git clone [https://github.com/forstorrelses/zkfrank.git](https://github.com/forstorrelses/zkfrank.git)
+   git clone [https://github.com/your-username/zkfrank.git](https://github.com/your-username/zkfrank.git)
    cd zkfrank
 
 2. **Install Node.js dependencies:**
-   ```bash
-   npm install
+```bash
+cd backend
+npm install
+```
 
 3. **Compile the Noir circuit:**
+```bash
+cd ../circuits
+nargo compile
+```
 
-4. **Configure User Data:**
-   Create a `user_data.json` file in the root directory and specify your age and a secret number (this secret will be used to generate your unique anonymous nullifier)::
-   ```json
-   {
-      "age": 67,
-      "secret": 18613518464 
-   }
-   ```
+4. **Clone the repository:**
+### Return the backend directoryu and run the monolithic script. No manual data configuration is required for this prototype stage:
+```bash
+cd ../backend
+node index.js
+```
 
-5. **Execution**
-   ```markdown
-   node index.js
+### Raspberry PI & Backend Optimizations
 
-## ⚙️ Raspberry Pi & Backend Optimizations
 Since ZK proof generation is computationally expensive, this project includes specific architectural tweaks for ARM-based and resource-constrained devices:
 
-Asynchronous File I/O: Reading circuit bytecode and user inputs via fs/promises to prevent blocking the main thread.
-
-Manual WASM Initialization: Explicitly booting the Barretenberg WASM engine (Barretenberg.new()) to optimize memory allocation on low-RAM hardware.
-
-Graceful Resource Teardown: Ensuring worker threads and WASM instances are destroyed (BarretenbergAPI.destroy()) immediately after verification to prevent memory leaks.
-
-Cryptographic Data Hashing: Compressing massive ZK proof buffers into lightweight 64-character SHA-256 strings before database insertion to preserve storage space on MicroSD cards.
-
-Industry Standard Timekeeping: Logging dates using the UTC timezone to ensure globally synchronized and tamper-proof verification history.
+* Asynchronous File I/O: Reading circuit bytecode and inputs via fs/promises to prevent blocking the main thread
+* Manual WASM Initialization: Explicitly booting the Barretenberg WASM engine (Barrentenberg.new()) to optimize memory allocation on low-RAM hardware.
+* Graceful Resource Teardown: Ensuring worker threads and WASM instances are destroyed (BarretenbergAPI.destroy()) immediately after verification to prevent memory leaks.
+* Industry Standard Timekeeping: Logging dates using the UTC timezone to ensure globally synchronized and tamper-proof verification history.

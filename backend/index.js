@@ -3,6 +3,12 @@ import { Noir } from '@noir-lang/noir_js';
 import { readFile } from 'fs/promises';
 import sqlite3 from "sqlite3";
 
+import { generateStateKeys, signData } from './keys.js';
+
+function bufferToNoirArray(buffer) {
+    return Array.from(buffer);
+}
+
 async function main(){  
     try {
         // reading zkfrank.json 
@@ -22,11 +28,38 @@ async function main(){
         console.log("The circuit successfully loaded into Node.js!");
         console.log("Bytecode:", circuitData.bytecode.slice(0, 50 ) + "..."); 
         
-        // initializing our age and secret
-        const user_input_data = JSON.parse(
-            await readFile('../user_data.json', 'utf-8')
-        );
+        // generate keys and mock data
+        const keys = generateStateKeys();
 
+        // TODO: [TEMPORARY SOLUTION]
+        // Hardcoded mock SSN is used here for initial circuit testing.
+        // Eventually, this will be replaced by dynamic data dynamically read 
+        // from a physical NFC chip using the Raspberry Pi Waveshare HAT.
+        const mockSSN = "999-88-7777";
+        const dataBuffer = Buffer.from(mockSSN, 'utf-8');
+
+        // sign the data
+        const privateKeyJwk = {
+            kty: 'EC',
+            crv: 'P-256',
+            d: keys.privateKey.d,
+            x: keys.publicKey.x,
+            y: keys.publicKey.y
+        };
+        const signature = signData(privateKeyJwk, dataBuffer);
+
+        // hash ssn for noir
+        const { createHash } = await import('crypto');
+        const hashed_ssn_buffer = createHash('sha256').update(dataBuffer).digest();
+
+        const user_input_data = {
+            pub_key_x: bufferToNoirArray(Buffer.from(keys.publicKey.x, 'base64url')),
+            pub_key_y: bufferToNoirArray(Buffer.from(keys.publicKey.y, 'base64url')),
+            signature: bufferToNoirArray(signature),
+            hashed_ssn: bufferToNoirArray(hashed_ssn_buffer)
+        }
+
+        
         // generating a nullifier
         const { witness, returnValue } = await noir.execute(user_input_data);
         const nullifier = returnValue.toString();
@@ -35,6 +68,7 @@ async function main(){
         // asking a backend to generate a proof from our witness
         const proof = await backend.generateProof(witness); 
         console.log("ZK Proof:", Buffer.from(proof.proof).toString('hex'));
+        
 
         // verifying our proof
         const isValid = await backend.verifyProof(proof); 
