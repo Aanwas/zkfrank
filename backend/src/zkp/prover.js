@@ -32,3 +32,16 @@ export async function generateZkProof(passportData) {
     // return the generated proof so the Verifier can use it
     return proofData;
 }
+
+// function to verify our proof cryptographically
+export async function verifyZkProof(proofData){
+    console.log("Verifying proof...")
+
+    const api = await Barretenberg.new();
+    const backend = new UltraHonkBackend(circuit.bytecode, api);
+
+    // returns true or false
+    const isValid = await backend.verifyProof(proofData);
+
+    return isValid;
+}
