@@ -60,13 +60,19 @@ The project automatically initializes and manages a local SQLite database (`proo
 
 1. Install [Nargo](https://noir-lang.org/docs/getting_started/installation/) (Noir's package manager).
 2. Install Node.js (v20 or higher) and npm.
-
+3. **Install System Dependencies (SQLite3):**
+   On Debian/Ubuntu/Raspbian (Raspberry Pi), run the following command to ensure SQLite3 and build tools are built into your system:
+   ```bash
+   sudo apt update
+   sudo apt install sqlite3 build-essential -y
+   ```
 ### Installation & Setup
 
 1. **Clone the repository:**
    ```bash
-   git clone [https://github.com/your-username/zkfrank.git](https://github.com/your-username/zkfrank.git)
+   git clone [https://github.com/forstorrelses/zkfrank.git](https://github.com/forstorrelses/zkfrank.git)
    cd zkfrank
+   ```
 
 2. **Install Node.js dependencies:**
 ```bash
@@ -80,12 +86,11 @@ cd ../circuits
 nargo compile
 ```
 
-4. **Clone the repository:**
-### Return the backend directoryu and run the monolithic script. No manual data configuration is required for this prototype stage:
-```bash
-cd ../backend
-node index.js
-```
+4. **Execution:**
+   Navigate back to the backend directory and run the monolithic execution script. No manual data configuration is required for this prototype stage:
+   ```bash
+   cd ../backend
+   node index.js
 
 ### Raspberry PI & Backend Optimizations
 
