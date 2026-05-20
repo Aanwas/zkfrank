@@ -12,11 +12,7 @@ function generateStateKeys() {
     console.log("Pub X:", publicKey.x);
     console.log("Pub Y:", publicKey.y);
 
-    // SECURITY WARNING: [TEMPORARY SOLUTION]
-    // Logging the private key to the console is strictly for developmental 
-    // debugging and prototype verification. In a production environment, 
-    // the Issuer's private key must be generated and stored securely (e.g., in an HSM) 
-    // and never exposed to standard output.
+    
     console.log("Priv D:", privateKey.d);
 
     return { publicKey, privateKey };
