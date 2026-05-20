@@ -1,7 +1,7 @@
 node_modules/
 target/
 *.db
-user_data.json
+nfc_passport.json
 
 npm-debug.log*
 yarn-error.log*

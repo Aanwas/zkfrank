@@ -5,6 +5,7 @@ import { bufferToNoirArray } from './utils/formats.js';
 
 async function issueID() {
     // define mock user data
+    // security warning, only used for debugging purposes
     const mockSSN = "999-88-7777";
     
     // generate state keys (extracting the returned object)
