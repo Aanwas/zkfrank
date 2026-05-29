@@ -57,4 +57,3 @@ export {
     generateStateKeys,
     signData
 };
-
