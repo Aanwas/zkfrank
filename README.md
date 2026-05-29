@@ -115,3 +115,41 @@ Since ZK proof generation is computationally expensive, this project includes sp
 * Modern Aztec APIs: Utilizing UltraHonkBackend and separating the Noir execution phase (witness generation) from the heavy Barretenberg proof generation to optimize memory allocation.
 * Strict Security Flow: Enforcing cryptographic proof verification before any database interaction to prevent malicious database bloat.
 * Industry Standard Timekeeping: Logging dates using the UTC timezone to ensure globally synchronized and tamper-proof verification history.
+
+## Hardware Integration (Physical NFC)
+
+Step 1: Wire the NFC Module
+Connect your PN532 NFC module to the Raspberry Pi using the I2C interface. Ensure the pins are securely connected:
+
+VCC -> 3.3V or 5V
+
+GND -> Ground
+
+SDA -> SDA (Pin 3)
+
+SCL -> SCL (Pin 5)
+
+Step 2: Install Python Package Manager
+Ensure your Raspberry Pi has pip3 installed to manage Python dependencies:
+```bash
+sudo apt update
+sudo apt install python3-pip -y
+```
+
+Step 3: Install Adafruit Drivers
+Install the official Adafruit hardware libraries required for the I2C bridge. (Note: The --break-system-packages flag is necessary on newer Raspberry Pi OS versions to install libraries globally).
+
+```bash
+pip3 install adafruit-blinka adafruit-circuitpython-pn532 --break-system-packages
+```
+
+Step 4: Run the System
+You do not need to execute the Python script manually. Once the wiring and drivers are set up, simply start the Node.js backend as usual:
+```bash
+node nfc_test.js
+```
+Make sure to run it in the backend directory.
+
+The Node.js process will automatically spin up the Python hardware bridge in the background and wait for physical NFC card taps.
+
+The hardware for it is Waveshare PN532 NFC HAT and NTAG215. 
