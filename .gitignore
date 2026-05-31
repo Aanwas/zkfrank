@@ -14,7 +14,7 @@ target/
 export/
 
 # Database
-backend/proofs.db
+database/proofs.db
 
 # OS Files
 .DS_Store
