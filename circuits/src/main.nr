@@ -3,38 +3,41 @@ use std;
 
 /**
  * @notice zkFrank Core Circuit
- * @dev Verifies that a user possesses a valid ECDSA signature over their identifier (SSN/UID)
+ * @dev Verifies that a user possesses a valid ECDSA signature over their identifier
  * without revealing the identifier or the signature on-chain.
- * * @param pub_key_x Public key X-coordinate (Uncompressed secp256r1) - Public Input
+ * @param pub_key_x Public key X-coordinate (Uncompressed secp256r1) - Public Input
  * @param pub_key_y Public key Y-coordinate (Uncompressed secp256r1) - Public Input
  * @param signature The 64-byte ECDSA signature over the hashed data - Private Input
- * @param hashed_ssn Hash of the identity token (e.g., NFC UID or SSN) - Private Input
- * * @return Field A unique nullifier to prevent double-spending / identity reuse attacks
+ * @param hashed_student_id Hash of the identity token (e.g., NFC UID) - Private Input
+ * @return Field A unique nullifier to prevent double-spending / identity reuse attacks
  */
 fn main(
     pub_key_x: pub [u8; 32], 
     pub_key_y: pub [u8; 32], 
     signature: [u8; 64], 
-    hashed_ssn: [u8; 32]
+    hashed_student_id: [u8; 32]
 ) -> pub Field {
     
-    // 1. Verify the ECDSA signature over the secp256r1 curve
+    // Verify the ECDSA signature over the secp256r1 curve
     let is_valid = std::ecdsa_secp256r1::verify_signature(
         pub_key_x, 
         pub_key_y, 
         signature, 
-        hashed_ssn
+        hashed_student_id
     );
 
-    // 2. Enforce constraint: Circuit execution fails if the signature is invalid
+    // Enforce constraint: Circuit execution fails if the signature is invalid
     assert(is_valid == true);
 
-    // 3. Generate and return a unique Nullifier
-    // TODO: [ROADMAP IMPLEMENTATION] 
-    // Currently returning a hardcoded '1' to satisfy the primitive ABI requirements.
-    // In production, this will compute a collision-resistant SNARK-friendly hash 
-    // (e.g., Poseidon or Pedersen) of the `hashed_ssn` and `signature`.
-    // This acts as a deterministic unique fingerprint, preventing Sybil attacks
-    // while maintaining absolute zero-knowledge user anonymity.
-    1
+    // Generate a true cryptographic Nullifier
+    // Safely convert each 8-bit byte into a ZK Field to avoid 254-bit overflow
+    let mut student_id_fields: [Field; 32] = [0; 32];
+    for i in 0..32 {
+        student_id_fields[i] = hashed_student_id[i] as Field;
+    }
+
+    // Apply standard Pedersen hash (built into vanilla Noir) to create the nullifier
+    let nullifier = std::hash::pedersen_hash(student_id_fields);
+
+    nullifier
 }

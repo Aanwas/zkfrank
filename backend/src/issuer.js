@@ -1,36 +1,53 @@
-import { writeFile } from 'fs/promises';
 import { createHash } from 'crypto';
-import { generateStateKeys, signData } from './crypto/ecdsa.js';
-import { bufferToNoirArray } from './utils/formats.js';
+import * as readline from 'readline';
+import { spawn } from 'child_process';
+import { generateSchoolKeys, signStudentData } from './crypto/ecdsa.js';
 
-async function issueID() {
-    // define mock user data
-    // security warning, only used for debugging purposes
-    const mockSSN = "999-88-7777";
-    
-    // generate state keys (extracting the returned object)
-    const { publicKey, privateKey } = generateStateKeys(); 
-    
-    // hashing ssn using sha-256 to create a unique hash of the user's data
-    const hashedSsn = createHash('sha256').update(mockSSN).digest();
-    
-    // passing the private key and the original ssn string to our custom function
-    const signature = signData(privateKey, mockSSN);
+const rl = readline.createInterface({
+    input: process.stdin,
+    output: process.stdout
+});
 
-    // pack the data 
-    const passportData = {
-        // jwk public keys are in base64url format, so we convert them to buffers first
-        pub_key_x: bufferToNoirArray(Buffer.from(publicKey.x, 'base64url')),
-        pub_key_y: bufferToNoirArray(Buffer.from(publicKey.y, 'base64url')),
-        signature: bufferToNoirArray(signature),
-        hashed_ssn: bufferToNoirArray(hashedSsn)
-    };
+async function issueStudentID() {
+    console.log("\n=== ZK-Frank: School ID Issuance Terminal ===");
 
-    // save the chip to our local file directory AFTER data is packed
-    // We use '../nfc_passport.json' to save it in the main backend folder
-    await writeFile('../nfc_passport.json', JSON.stringify(passportData, null, 2));
-    
-    console.log("ID successfully saved to nfc_passport.json!");
+    rl.question('Enter student ID (e.g., SCH-0941-STU-77402): ', (studentID) => {
+        if (!studentID.trim()) {
+            console.log("Error: ID cannot be empty.");
+            rl.close();
+            return;
+        }
+
+        const { publicKey, privateKey } = generateSchoolKeys(); 
+        const hashedStudentId = createHash('sha256').update(studentID).digest();
+        const signature = signStudentData(privateKey, studentID);
+
+        const pubXBuffer = Buffer.from(publicKey.x, 'base64url');
+        const pubYBuffer = Buffer.from(publicKey.y, 'base64url');
+        
+        // Assemble 160 bytes
+        const fullPayload = Buffer.concat([pubXBuffer, pubYBuffer, signature, hashedStudentId]);
+        const hexPayload = fullPayload.toString('hex');
+
+        console.log(`\nCryptographic payload generated.`);
+        console.log(`Connecting to Hardware Layer...`);
+        
+        // Spawn the Python worker and pass the hex string as an argument
+        const nfcWriter = spawn('python3', ['-u', 'nfc_writer.py', hexPayload]);
+
+        nfcWriter.stdout.on('data', (data) => {
+            process.stdout.write(data.toString());
+        });
+
+        nfcWriter.stderr.on('data', (data) => {
+            console.error(`Hardware Warning: ${data.toString()}`);
+        });
+
+        nfcWriter.on('close', (code) => {
+            console.log(`\nIssuance Session Closed.`);
+            rl.close();
+        });
+    });
 }
 
-issueID();
+issueStudentID();
