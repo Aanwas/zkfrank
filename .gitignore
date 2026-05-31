@@ -1,7 +1,21 @@
+# Node.js
 node_modules/
-target/
-*.db
-nfc_passport.json
+.env
+npm-debug.log
 
-npm-debug.log*
-yarn-error.log*
+# Python
+__pycache__/
+*.py[cod]
+*venv/
+.env/
+
+# Noir / Aztec (Smart Contracts & Circuits)
+target/
+export/
+
+# Database
+backend/proofs.db
+
+# OS Files
+.DS_Store
+Thumbs.db
