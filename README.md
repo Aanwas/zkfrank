@@ -1,4 +1,4 @@
-# ZK-Frank: Zero-Knowledge NFC Passport Authentication
+# ZK-Frank: Zero-Knowledge NFC Student ID verefication
 
 A Zero-Knowledge Proof (ZKP) application designed to cryptographically prove the possession of a valid State-issued signature over sensitive data (e.g., a Social Security Number) without revealing the underlying data to the verifier. 
 
@@ -21,7 +21,7 @@ The backend is completely modularized and split into three logical entities to s
 * **`src/utils/formats.js`**: Utility functions to convert buffers into Noir-compatible arrays.
 
 ### 2. ZK Prover 
-* **`src/zkp/prover.js`**: Interfaces with the Barretenberg backend. Takes the passport data, executes the Noir circuit to generate a mathematical witness, computes the heavy Zero-Knowledge proof, and contains the logic for cryptographic proof verification.
+* **`src/zkp/prover.js`**: Interfaces with the Barretenberg backend. Takes the student ID data, executes the Noir circuit to generate a mathematical witness, computes the heavy Zero-Knowledge proof, and contains the logic for cryptographic proof verification.
 
 ### 3. Verifier
 * **`src/verifier.js`**: The main entry point for the verifier. Simulates reading the NFC chip data, requests a ZK proof, cryptographically verifies the proof to prevent spoofing, extracts the public Nullifier, and interacts with the database.
