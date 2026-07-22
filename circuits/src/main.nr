@@ -79,4 +79,13 @@ pub contract StudentId {
     fn is_valid(commitment: Field) -> bool {
         self.storage.valid_credentials.at(commitment).read()
     }
+
+    // Local testing helper: compute the commitment the same way the contract does.
+    // Meant to be run via `simulate` (never on-chain) — in production the university
+    // computes the commitment off-chain, so the raw id/secret never go public.
+    #[external("public")]
+    #[view]
+    fn compute_commitment(student_id: Field, secret: Field) -> Field {
+        poseidon2_hash([student_id, secret])
+    }
 }
