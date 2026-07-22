@@ -13,8 +13,11 @@ __pycache__/
 target/
 export/
 
-# Database
-database/proofs.db
+# Database (never commit SQLite data)
+proofs.db
+*.db
+*.sqlite
+*.sqlite3
 
 # OS Files
 .DS_Store
