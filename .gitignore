@@ -19,3 +19,7 @@ database/proofs.db
 # OS Files
 .DS_Store
 Thumbs.db
+
+# Local tooling notes (do not commit)
+CLAUDE.md
+llms.txt
