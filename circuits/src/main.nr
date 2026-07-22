@@ -12,4 +12,5 @@ pub contract HelloWorld {
     unconstrained fn get_greeting() -> Field {
         42
     }
+
 }
