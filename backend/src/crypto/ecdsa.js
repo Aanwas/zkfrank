@@ -36,7 +36,7 @@ export function signStudentData(privateKeyJwk, dataString) {
 
         const signature = sign.sign({
             key: pKey,
-            dsaEncoding: 'ieee-p1363' // Важно: формат из 64 байт (R + S)
+            dsaEncoding: 'ieee-p1363'
         });
         
         const sBuffer = signature.subarray(32, 64);
