@@ -23,13 +23,13 @@ def main():
                     page_data = pn532.ntag2xx_read_block(page)
                     
                     if page_data is not None:
-                        # КРИТИЧЕСКИ ВАЖНО: Жестко берем только первые 4 байта
-                        # Это защищает буфер, если драйвер возвращает 16 байт
+                        # CRITICAL: Take only the first 4 bytes
+                        # This guards the buffer in case the driver returns 16 bytes
                         payload_bytes.extend(page_data[0:4])
                     else:
                         raise Exception(f"Read error at page {page}")
-                    
-                    # Микро-пауза, чтобы не повесить шину I2C при агрессивном чтении
+
+                    # Micro-pause to avoid locking up the I2C bus during aggressive reads
                     time.sleep(0.005)
                 
                 hex_payload = "".join([f"{b:02X}" for b in payload_bytes])
