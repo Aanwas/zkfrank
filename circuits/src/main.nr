@@ -81,7 +81,7 @@ pub contract StudentId {
     }
 
     // Local testing helper: compute the commitment the same way the contract does.
-    // Meant to be run via `simulate` (never on-chain) — in production the university
+    // Meant to be run via `simulate` (never on-chain) - in production the university
     // computes the commitment off-chain, so the raw id/secret never go public.
     #[external("public")]
     #[view]
