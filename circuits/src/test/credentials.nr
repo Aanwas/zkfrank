@@ -101,3 +101,89 @@ unconstrained fn non_admin_cannot_revoke() {
     // and the test passes because of that revert.
     env.call_public(alice, StudentId::at(contract_address).revoke_credential(commitment));
 }
+
+// The core happy path of the whole contract: a student proves knowledge of the
+// (student_id, secret) behind a registered commitment, without revealing them.
+#[test]
+unconstrained fn student_can_validate_issued_credential() {
+    let (mut env, contract_address, admin) = utils::setup();
+
+    // A separate account: the proof is produced by the student, not the admin.
+    let student = env.create_light_account();
+
+    let commitment =
+        env.view_public(StudentId::at(contract_address).compute_commitment(1001, 42));
+    env.call_public(admin, StudentId::at(contract_address).issue_credential(commitment));
+
+    // The student submits the RAW id and secret in private execution. They never
+    // reach public state - the contract only recomputes the hash from them.
+    // call_private also runs the public call that validate() enqueues
+    // (assert_valid), so this single line exercises the full chain.
+    env.call_private(student, StudentId::at(contract_address).validate(1001, 42));
+
+    // No assert: if the proof or the public check had failed, this would revert.
+}
+
+// The single most important test in the file: the commitment must actually bind
+// the secret. Only the secret differs from the issued credential (42 -> 99), so
+// the contract computes poseidon2([1001, 99]), a completely different value that
+// was never registered - and assert_valid rejects it.
+//
+// If this test ever passes without reverting, the scheme is broken: anyone
+// knowing just a student id could impersonate that student.
+#[test(should_fail_with = "Invalid or revoked credential")]
+unconstrained fn validate_fails_with_wrong_secret() {
+    let (mut env, contract_address, admin) = utils::setup();
+
+    let student = env.create_light_account();
+
+    // The credential the university actually issued.
+    let commitment =
+        env.view_public(StudentId::at(contract_address).compute_commitment(1001, 42));
+    env.call_public(admin, StudentId::at(contract_address).issue_credential(commitment));
+
+    // Right id, wrong secret.
+    env.call_private(student, StudentId::at(contract_address).validate(1001, 99));
+}
+
+// Revocation must hold against the private path too, not just the is_valid
+// view. Otherwise a graduated student could keep proving they are enrolled.
+#[test(should_fail_with = "Invalid or revoked credential")]
+unconstrained fn student_cannot_validate_revoked_credential() {
+    let (mut env, contract_address, admin) = utils::setup();
+
+    let student = env.create_light_account();
+
+    let commitment =
+        env.view_public(StudentId::at(contract_address).compute_commitment(1001, 42));
+
+    // Issue, then take it back.
+    env.call_public(admin, StudentId::at(contract_address).issue_credential(commitment));
+    env.call_public(admin, StudentId::at(contract_address).revoke_credential(commitment));
+
+    // Correct id and secret, but the credential is no longer registered.
+    env.call_private(student, StudentId::at(contract_address).validate(1001, 42));
+}
+
+// One credential, one use. validate() pushes a nullifier derived from the
+// commitment and the secret; the network refuses a nullifier it has already
+// seen, so the second attempt must revert.
+//
+// NOTE: the expected message below is a deliberate placeholder. Running this
+// test prints `Got: <the real message>`, and we replace "TODO" with it.
+#[test(should_fail_with = "TODO")]
+unconstrained fn credential_cannot_be_used_twice() {
+    let (mut env, contract_address, admin) = utils::setup();
+
+    let student = env.create_light_account();
+
+    let commitment =
+        env.view_public(StudentId::at(contract_address).compute_commitment(1001, 42));
+    env.call_public(admin, StudentId::at(contract_address).issue_credential(commitment));
+
+    // First use: legitimate, must succeed.
+    env.call_private(student, StudentId::at(contract_address).validate(1001, 42));
+
+    // Second use of the same credential: the nullifier is already spent.
+    env.call_private(student, StudentId::at(contract_address).validate(1001, 42));
+}
