@@ -1,0 +1,8 @@
+[package]
+name = "zkfrank_test"
+type = "lib"
+authors = [""]
+
+[dependencies]
+zkfrank_contract = { path = "../zkfrank_contract" }
+aztec = { git="https://github.com/AztecProtocol/aztec-nr", tag="v4.3.0", directory="aztec" }

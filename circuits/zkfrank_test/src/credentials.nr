@@ -8,8 +8,8 @@
 //   env.call_private(from, call) - private execution + any enqueued public calls
 // The target address is not passed to these methods; it lives inside the call
 // itself, built with StudentId::at(contract_address).
-use crate::test::utils;
-use crate::StudentId;
+use crate::utils;
+use zkfrank_contract::StudentId;
 
 // The happy path: a credential the admin has issued reads back as valid.
 #[test]
