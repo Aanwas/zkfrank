@@ -1,3 +1,5 @@
+mod test;
+
 use aztec::macros::aztec;
 
 // Private student ID (Phase 1: commitment model).
