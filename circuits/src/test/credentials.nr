@@ -169,9 +169,9 @@ unconstrained fn student_cannot_validate_revoked_credential() {
 // commitment and the secret; the network refuses a nullifier it has already
 // seen, so the second attempt must revert.
 //
-// NOTE: the expected message below is a deliberate placeholder. Running this
-// test prints `Got: <the real message>`, and we replace "TODO" with it.
-#[test(should_fail_with = "TODO")]
+// The full message ends with the nullifier value itself; we match only the
+// stable prefix, since that hash changes with the id and secret used here.
+#[test(should_fail_with = "Attempted to emit duplicate siloed nullifier")]
 unconstrained fn credential_cannot_be_used_twice() {
     let (mut env, contract_address, admin) = utils::setup();
 
