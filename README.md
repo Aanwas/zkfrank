@@ -1,155 +1,172 @@
-# ZK-Frank: Zero-Knowledge NFC Student ID verefication
+# ZK-Frank: private student ID on Aztec
 
-A Zero-Knowledge Proof (ZKP) application designed to cryptographically prove the possession of a valid State-issued signature over sensitive data (e.g., a Social Security Number) without revealing the underlying data to the verifier. 
+Prove you are a valid student without revealing who you are.
 
-This project is optimized to run on resource-constrained devices like the Raspberry Pi and features a secure modular backend pipeline for issuance, proof verification, and cryptographic logging.
+A university issues credentials on the [Aztec Network](https://aztec.network). Only a
+commitment ever touches the chain — the student id itself never leaves the card.
+A student then privately proves knowledge of the values behind a registered
+commitment, and a nullifier makes each credential usable exactly once (one discount
+per student, one entry per pass).
 
-The core Noir circuit utilizes elliptic curve cryptography (secp256r1) to ensure the condition: 
-`assert(is_valid == true);`
-
-The system processes the user's encrypted data as private inputs, generates a cryptographic proof, verifies it mathematically, and securely logs a unique footprint into a local database to prevent Sybil attacks (double-spending of an identity).
-
----
-
-## Backend Architecture
-
-The backend is completely modularized and split into three logical entities to simulate a real-world Web3 architecture:
-
-### 1. Issuer
-* **`src/issuer.js`**: The main entry point for the State. Generates ECDSA keys, hashes user data (SSN), signs it, and formats the arrays for Noir. Outputs the simulated "chip" data to `nfc_passport.json`.
-* **`src/crypto/ecdsa.js`**: Handles elliptic curve cryptography (secp256r1) and ensures strict Low-S signature malleability protection.
-* **`src/utils/formats.js`**: Utility functions to convert buffers into Noir-compatible arrays.
-
-### 2. ZK Prover 
-* **`src/zkp/prover.js`**: Interfaces with the Barretenberg backend. Takes the student ID data, executes the Noir circuit to generate a mathematical witness, computes the heavy Zero-Knowledge proof, and contains the logic for cryptographic proof verification.
-
-### 3. Verifier
-* **`src/verifier.js`**: The main entry point for the verifier. Simulates reading the NFC chip data, requests a ZK proof, cryptographically verifies the proof to prevent spoofing, extracts the public Nullifier, and interacts with the database.
-* **`src/database/db.js`**: An asynchronous SQLite wrapper that ensures Sybil-resistance by checking for duplicate Nullifiers.
+The credential lives on a physical NFC card, read by a Raspberry Pi.
 
 ---
 
-## Current Development Status: The Prototype
+## How it works
 
-At this stage, the core cryptographic engine and modular architecture are successfully operational. Please note the following temporary developmental implementations:
+The contract stores `commitment = poseidon2([student_id, secret])` and nothing else:
 
-* **Mock Data Inputs:** User data (e.g., SSN) is currently hardcoded for circuit testing and saved to a local `nfc_passport.json` file. Future iterations will dynamically read/write encrypted data from a physical NFC chip using a Raspberry Pi hardware module (`nfc-pcsc`).
-* **Static Nullifier:** The Noir circuit currently extracts the first byte of the public key as a nullifier. True Sybil-resistance will be implemented later via Poseidon/Pedersen hashing inside the `.nr` contract.
+1. **Issue** — the university computes the commitment off-chain and calls
+   `issue_credential(commitment)`. The chain sees a hash, not an identity.
+2. **Validate** — the student calls the private function `validate(student_id, secret)`.
+   It recomputes the commitment inside the circuit, pushes
+   `nullifier = poseidon2([commitment, secret])`, and asks the public side to assert
+   the credential is still valid. The inputs never appear in the transaction.
+3. **Reuse is rejected** — a second `validate` with the same credential emits the same
+   nullifier, and the network refuses it: `Attempted to emit duplicate siloed nullifier`.
+4. **Revoke** — the university can call `revoke_credential(commitment)` at any time.
 
----
-
-## Tech Stack
-
-* **Language:** Noir (v1.0.0-beta.21)
-* **ZK Backend:** Aztec Barretenberg (UltraHonk)
-* **Runtime:** Node.js (v20+) with native `crypto` API
-* **Database:** SQLite3
-* **Hardware:** Raspberry Pi 4B/5 (Tested on Debian/Raspbian OS)
-
----
-
-## Database Structure
-
-The project automatically initializes and manages a local SQLite database (`proofs.db`). It contains a `validations` table with the following schema:
-
-| Column Name  | Data Type | Description                                              |
-| :---         | :---      | :---                                                     |
-| `id`         | INTEGER   | Primary key with AUTOINCREMENT                           |
-| `proof_hash` | TEXT      | The unique nullifier emitted by the Noir circuit         |
-| `created_at` | DATETIME  | Verification timestamp stored in **UTC standard** |
+Privacy comes from the commitment (the id is never published) and single-use comes from
+the nullifier (which is public, but reveals nothing about the id).
 
 ---
 
-## Getting Started
+## Architecture
+
+```
+[NTAG215 card] --tap--> [Raspberry Pi + PN532]     card reader only, no Aztec
+                              |
+                              | SSH
+                              v
+                        [PC / WSL2]                 PXE builds the proof
+                              |
+                              v
+                     [Aztec local network]          contract lives here
+```
+
+Proof generation is heavy, so it runs on x86 rather than on the Pi. The Pi does one
+job: read the card and hand over the numbers.
+
+---
+
+## Repository layout
+
+```
+circuits/
+  zkfrank_contract/    the StudentId contract (Noir / Aztec.nr)
+  zkfrank_test/        TXE tests, a separate crate so test edits do not
+                       invalidate the contract artifact
+scripts/
+  validate_demo.mjs    end-to-end demo against a local network
+backend/
+  nfc_layout.py        single source of truth for the on-card format
+  nfc_writer.py        write (student_id, secret) to a card
+  nfc_reader.py        read it back
+```
+
+---
+
+## Tech stack
+
+* **Contract:** Noir / Aztec.nr, Aztec **4.3.0** (pinned — Aztec breaks APIs between majors)
+* **Client:** `@aztec/aztec.js` + `@aztec/wallets` 4.3.0, Node.js 20.10+
+* **Hardware:** Raspberry Pi + Waveshare PN532 NFC HAT (I2C), NTAG215 cards
+* **Card side:** Python 3 with `adafruit-circuitpython-pn532`
+
+---
+
+## Getting started
 
 ### Prerequisites
 
-1. Install [Nargo](https://noir-lang.org/docs/getting_started/installation/) (Noir's package manager).
-2. Install Node.js (v20 or higher) and npm.
-3. **Install System Dependencies (SQLite3):**
-   On Debian/Ubuntu/Raspbian (Raspberry Pi), run the following command to ensure SQLite3 and build tools are built into your system:
-   ```bash
-   sudo apt update
-   sudo apt install sqlite3 build-essential -y
+Install the Aztec toolchain (this also provides `aztec-nargo`; use `aztec` rather than a
+standalone `nargo`, since a bare `nargo compile` produces incomplete artifacts):
 
-## Installation $ Setup
-1. Clone the repository:
 ```bash
-git clone [https://github.com/Aanwas/zkfrank.git](https://github.com/Aanwas/zkfrank.git)
-cd zkfrank
+bash -i <(curl -s https://install.aztec.network)
+aztec-up install 4.3.0
 ```
 
-2. Install Node.js dependencies:
+Then install the JS dependencies:
+
 ```bash
-cd backend
+git clone https://github.com/Aanwas/zkfrank.git
+cd zkfrank
 npm install
 ```
 
-3. Compile the Noir circuit:
+### Compile and test the contract
+
 ```bash
-cd ../circuits
-nargo compile
+cd circuits
+aztec compile          # produces target/zkfrank_contract-StudentId.json
+aztec test             # 8 TXE tests: access control, revocation, private validate, reuse
 ```
 
-## Execution
-The execution is split into two distinct steps to simulate the real-world flow. Navigate to the backend directory:
+### Run the end-to-end demo
+
+Start a local network in one terminal:
+
 ```bash
-cd backend
+aztec start --local-network
 ```
 
-### Step 1: Issue a new ID
-This will generate keys, sign the mock data, and write it to nfc_passport.json (acting as our simulated NFC chip).
+And run the demo in another:
+
 ```bash
-node src/issuer.js
+node scripts/validate_demo.mjs
 ```
 
-### Step 2: Verify the ID
-This will read the simulated chip, generate the ZKP, mathematically verify it, and save the nullifier to the SQLite database. Running this twice will trigger the Sybil-resistance protection.
+It deploys the contract, issues a credential, validates it privately, then tries to
+reuse it and shows the network rejecting the duplicate nullifier.
+
+---
+
+## NFC card
+
+### Wiring
+
+Connect the PN532 module over I2C: `VCC -> 3.3V/5V`, `GND -> GND`, `SDA -> pin 3`,
+`SCL -> pin 5`. Enable I2C via `raspi-config`, then check the module answers:
+
 ```bash
-node src/verifier.js
+i2cdetect -y 1         # the PN532 shows up at address 0x24
 ```
 
-## Raspberry PI & Backend Optimizations
-Since ZK proof generation is computationally expensive, this project includes specific architectural tweaks for ARM-based and resource-constrained devices:
-* Asynchronous File I/O: Reading circuit bytecode and inputs via fs/promises to prevent blocking the main thread.
-* Modern Aztec APIs: Utilizing UltraHonkBackend and separating the Noir execution phase (witness generation) from the heavy Barretenberg proof generation to optimize memory allocation.
-* Strict Security Flow: Enforcing cryptographic proof verification before any database interaction to prevent malicious database bloat.
-* Industry Standard Timekeeping: Logging dates using the UTC timezone to ensure globally synchronized and tamper-proof verification history.
-
-## Hardware Integration (Physical NFC)
-
-Step 1: Wire the NFC Module
-Connect your PN532 NFC module to the Raspberry Pi using the I2C interface. Ensure the pins are securely connected:
-
-VCC -> 3.3V or 5V
-
-GND -> Ground
-
-SDA -> SDA (Pin 3)
-
-SCL -> SCL (Pin 5)
-
-Step 2: Install Python Package Manager
-Ensure your Raspberry Pi has pip3 installed to manage Python dependencies:
-```bash
-sudo apt update
-sudo apt install python3-pip -y
-```
-
-Step 3: Install Adafruit Drivers
-Install the official Adafruit hardware libraries required for the I2C bridge. (Note: The --break-system-packages flag is necessary on newer Raspberry Pi OS versions to install libraries globally).
+### Drivers
 
 ```bash
+sudo apt update && sudo apt install python3-pip -y
 pip3 install adafruit-blinka adafruit-circuitpython-pn532 --break-system-packages
 ```
 
-Step 4: Run the System
-You do not need to execute the Python script manually. Once the wiring and drivers are set up, simply start the Node.js backend as usual:
+### Write and read a card
+
+Both values are Aztec `Field` elements, stored big-endian as 32 bytes each in pages
+4..19. The writer verifies the card by reading it back, and a blank card is rejected
+because `0xFF...` is not a valid field element.
+
 ```bash
-node nfc_test.js
+python3 backend/nfc_writer.py 1001 42
+python3 backend/nfc_reader.py
 ```
-Make sure to run it in the backend directory.
 
-The Node.js process will automatically spin up the Python hardware bridge in the background and wait for physical NFC card taps.
+These run on the Pi only — there is no I2C bus on a PC.
 
-The hardware for it is Waveshare PN532 NFC HAT and NTAG215. 
+---
+
+## Status
+
+Working: the contract with its TXE tests, the end-to-end demo against a local network,
+and the NFC write/read cycle.
+
+In progress: wiring the card to the network, so that tapping a card triggers a real
+`validate` transaction.
+
+The project deliberately targets a local network rather than testnet — the contract,
+PXE, private execution and nullifiers behave identically, and testnet would only add
+block waits and faucet steps.
+
+`backend/src/` still holds an earlier ECDSA-based iteration of this project
+(`issuer.js`, `verifier.js`, `prover.js`, SQLite logging). It is not part of the current
+flow and is kept only for reference.
