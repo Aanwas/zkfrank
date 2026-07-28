@@ -6,7 +6,14 @@
 # so the payload is 64 bytes living in pages 4..19 (NTAG215 user memory
 # starts at page 4 and holds 504 bytes, so there is room to spare).
 #
-# Usage: python3 nfc_writer.py <student_id> <secret>
+# The secret is generated here rather than supplied: it is what stops an
+# attacker from recovering the student id. Commitments are published as plain
+# arguments to issue_credential, so anyone can read one off the chain and try to
+# guess the pair behind it. A hand-picked secret like 42 falls to a search of a
+# few thousand hashes; a random 254-bit one does not.
+#
+# Usage: python3 nfc_writer.py <student_id>
+import secrets
 import sys
 import time
 import board
@@ -14,6 +21,7 @@ import busio
 from adafruit_pn532.i2c import PN532_I2C
 
 from nfc_layout import (
+    FIELD_MODULUS,
     FIRST_PAGE,
     LAST_PAGE,
     PAGE_SIZE,
@@ -45,11 +53,14 @@ def write_payload(pn532, payload):
 
 
 def main():
-    if len(sys.argv) != 3:
-        raise SystemExit("Usage: python3 nfc_writer.py <student_id> <secret>")
+    if len(sys.argv) != 2:
+        raise SystemExit("Usage: python3 nfc_writer.py <student_id>")
 
     student_id = parse_field(sys.argv[1], "student_id")
-    secret = parse_field(sys.argv[2], "secret")
+
+    # secrets.randbelow draws from the OS cryptographic source, unlike random(),
+    # whose output is predictable from a handful of observed values.
+    secret = secrets.randbelow(FIELD_MODULUS)
 
     payload = encode_payload(student_id, secret)
 
