@@ -32,16 +32,20 @@ console.log('student:', student.toString());
 const artifact = loadContractArtifact(
   JSON.parse(readFileSync(new URL(ARTIFACT, import.meta.url), 'utf8')),
 );
-const contract = await Contract.deploy(wallet, artifact, [admin]).send({ from: admin });
+// send() resolves to { contract, receipt } - the docstring claiming it returns the
+// contract directly is wrong, the signature in deploy_method.d.ts is authoritative.
+const { contract } = await Contract.deploy(wallet, artifact, [admin]).send({ from: admin });
 console.log('contract:', contract.address.toString());
 
 // 4. Compute commitment = poseidon2([student_id, secret]).
-const commitment = await contract.methods.compute_commitment(STUDENT_ID, SECRET).simulate({ from: admin });
+// simulate() resolves to { result, offchainEffects, offchainMessages }, so unwrap result.
+const { result: commitment } = await contract.methods.compute_commitment(STUDENT_ID, SECRET).simulate({ from: admin });
 console.log('commitment:', commitment);
 
 // 5. The university issues the credential.
 await contract.methods.issue_credential(commitment).send({ from: admin });
-console.log('issued, is_valid =', await contract.methods.is_valid(commitment).simulate({ from: admin }));
+const { result: isValid } = await contract.methods.is_valid(commitment).simulate({ from: admin });
+console.log('issued, is_valid =', isValid);
 
 // 6. The student proves ownership privately, then tries to reuse the credential.
 await contract.methods.validate(STUDENT_ID, SECRET).send({ from: student });
