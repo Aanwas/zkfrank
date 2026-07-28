@@ -82,12 +82,18 @@ await contract.methods.issue_credential(commitment).send({ from: admin });
 const { result: isValid } = await contract.methods.is_valid(commitment).simulate({ from: admin });
 console.log('issued, is_valid =', isValid);
 
-// 7. The student proves ownership privately, then tries to reuse the credential.
-await contract.methods.validate(studentId, secret).send({ from: student });
+// 7. Ask the chain what day it is. The local network warps its clock forward, so
+// the day derived from this machine's clock would drift out of agreement with
+// the contract and validate() would revert with "Wrong day".
+const { result: day } = await contract.methods.current_day().simulate({ from: student });
+console.log('day    :', day);
+
+// 8. The student claims the discount, then tries to claim it twice in one day.
+await contract.methods.validate(studentId, secret, day).send({ from: student });
 console.log('validate #1: OK');
 
 try {
-  await contract.methods.validate(studentId, secret).send({ from: student });
+  await contract.methods.validate(studentId, secret, day).send({ from: student });
   console.log('validate #2: OK - this is bad, the nullifier did not work');
 } catch (e) {
   console.log('validate #2 rejected as expected:', e.message);

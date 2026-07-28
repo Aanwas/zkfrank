@@ -115,13 +115,58 @@ unconstrained fn student_can_validate_issued_credential() {
         env.view_public(StudentId::at(contract_address).compute_commitment(1001, 42));
     env.call_public(admin, StudentId::at(contract_address).issue_credential(commitment));
 
+    // Pin the chain to a known day, since the contract now checks that the day
+    // passed in really is today.
+    let day = utils::advance_to_next_day(env);
+
     // The student submits the RAW id and secret in private execution. They never
     // reach public state - the contract only recomputes the hash from them.
     // call_private also runs the public call that validate() enqueues
-    // (assert_valid), so this single line exercises the full chain.
-    env.call_private(student, StudentId::at(contract_address).validate(1001, 42));
+    // (assert_valid_today), so this single line exercises the full chain.
+    env.call_private(student, StudentId::at(contract_address).validate(1001, 42, day));
 
     // No assert: if the proof or the public check had failed, this would revert.
+}
+
+// The discount is claimable again tomorrow. This is the test that pins down the
+// use case: the nullifier covers a day, not the whole life of the card, so a
+// student can come back to the library the next day.
+#[test]
+unconstrained fn credential_can_be_used_again_next_day() {
+    let (mut env, contract_address, admin) = utils::setup();
+
+    let student = env.create_light_account();
+
+    let commitment =
+        env.view_public(StudentId::at(contract_address).compute_commitment(1001, 42));
+    env.call_public(admin, StudentId::at(contract_address).issue_credential(commitment));
+
+    let today = utils::advance_to_next_day(env);
+    env.call_private(student, StudentId::at(contract_address).validate(1001, 42, today));
+
+    // Same card, same secret, next day: the day is part of the nullifier, so
+    // this is a different nullifier and the network accepts it.
+    let tomorrow = utils::advance_to_next_day(env);
+    env.call_private(student, StudentId::at(contract_address).validate(1001, 42, tomorrow));
+}
+
+// A student must not be able to mint extra uses by simply claiming a different
+// day. Without the timestamp check in assert_valid_today, passing tomorrow's
+// number would produce a fresh nullifier and the daily limit would be worthless.
+#[test(should_fail_with = "Wrong day")]
+unconstrained fn validate_fails_with_wrong_day() {
+    let (mut env, contract_address, admin) = utils::setup();
+
+    let student = env.create_light_account();
+
+    let commitment =
+        env.view_public(StudentId::at(contract_address).compute_commitment(1001, 42));
+    env.call_public(admin, StudentId::at(contract_address).issue_credential(commitment));
+
+    let today = utils::advance_to_next_day(env);
+
+    // The chain is on `today`, but the student claims it is already tomorrow.
+    env.call_private(student, StudentId::at(contract_address).validate(1001, 42, today + 1));
 }
 
 // The single most important test in the file: the commitment must actually bind
@@ -143,7 +188,8 @@ unconstrained fn validate_fails_with_wrong_secret() {
     env.call_public(admin, StudentId::at(contract_address).issue_credential(commitment));
 
     // Right id, wrong secret.
-    env.call_private(student, StudentId::at(contract_address).validate(1001, 99));
+    let day = utils::advance_to_next_day(env);
+    env.call_private(student, StudentId::at(contract_address).validate(1001, 99, day));
 }
 
 // Revocation must hold against the private path too, not just the is_valid
@@ -162,17 +208,18 @@ unconstrained fn student_cannot_validate_revoked_credential() {
     env.call_public(admin, StudentId::at(contract_address).revoke_credential(commitment));
 
     // Correct id and secret, but the credential is no longer registered.
-    env.call_private(student, StudentId::at(contract_address).validate(1001, 42));
+    let day = utils::advance_to_next_day(env);
+    env.call_private(student, StudentId::at(contract_address).validate(1001, 42, day));
 }
 
-// One credential, one use. validate() pushes a nullifier derived from the
-// commitment and the secret; the network refuses a nullifier it has already
-// seen, so the second attempt must revert.
+// One credential, one use PER DAY. validate() pushes a nullifier derived from
+// the commitment, the secret and the day; the network refuses a nullifier it has
+// already seen, so a second attempt on the same day must revert.
 //
 // The full message ends with the nullifier value itself; we match only the
 // stable prefix, since that hash changes with the id and secret used here.
 #[test(should_fail_with = "Attempted to emit duplicate siloed nullifier")]
-unconstrained fn credential_cannot_be_used_twice() {
+unconstrained fn credential_cannot_be_used_twice_in_one_day() {
     let (mut env, contract_address, admin) = utils::setup();
 
     let student = env.create_light_account();
@@ -181,9 +228,11 @@ unconstrained fn credential_cannot_be_used_twice() {
         env.view_public(StudentId::at(contract_address).compute_commitment(1001, 42));
     env.call_public(admin, StudentId::at(contract_address).issue_credential(commitment));
 
-    // First use: legitimate, must succeed.
-    env.call_private(student, StudentId::at(contract_address).validate(1001, 42));
+    let day = utils::advance_to_next_day(env);
 
-    // Second use of the same credential: the nullifier is already spent.
-    env.call_private(student, StudentId::at(contract_address).validate(1001, 42));
+    // First use: legitimate, must succeed.
+    env.call_private(student, StudentId::at(contract_address).validate(1001, 42, day));
+
+    // Second use on the SAME day: the nullifier is already spent.
+    env.call_private(student, StudentId::at(contract_address).validate(1001, 42, day));
 }

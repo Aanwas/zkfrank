@@ -6,7 +6,11 @@ use aztec::macros::aztec;
 // commitment = poseidon2([student_id, secret]). Only this hash ever touches the
 // chain; the raw student id stays off-chain. A student can then privately prove
 // they know the (student_id, secret) behind a registered commitment WITHOUT
-// revealing the id, and a nullifier makes each credential usable only once.
+// revealing the id.
+//
+// Target use case: a student claims a discount at a library terminal without
+// showing who they are. The nullifier therefore covers one day, so the discount
+// can be claimed once per day rather than once ever.
 #[aztec]
 pub contract StudentId {
     use aztec::macros::{
@@ -15,6 +19,10 @@ pub contract StudentId {
     };
     use aztec::protocol::{address::AztecAddress, hash::poseidon2_hash};
     use aztec::state_vars::{Map, PublicMutable};
+
+    // A "day" is the unix timestamp divided by this, so it is just a day number
+    // counted from 1970. Days are UTC, which is fine for a discount window.
+    global SECONDS_PER_DAY: u64 = 86400;
 
     #[storage]
     struct Storage<Context> {
@@ -48,29 +56,46 @@ pub contract StudentId {
     }
 
     // Private: a student proves they know (student_id, secret) for a registered
-    // credential, without revealing the student id. A nullifier makes each
-    // credential usable only once (e.g. one discount per student).
+    // credential, without revealing the student id. `day` scopes the nullifier,
+    // so the credential is spendable once per day.
     #[external("private")]
-    fn validate(student_id: Field, secret: Field) {
+    fn validate(student_id: Field, secret: Field, day: u64) {
         // Recompute the commitment privately from the secret inputs.
         let commitment = poseidon2_hash([student_id, secret]);
 
-        // One-time use: the network rejects a duplicate nullifier.
-        let nullifier = poseidon2_hash([commitment, secret]);
+        // One use per day: the network rejects a duplicate nullifier. `day` is
+        // part of the hash, so tomorrow yields a different nullifier and the
+        // student can claim again. assert_valid_today below pins `day` to the
+        // real block time - otherwise a student could mint unlimited uses just
+        // by passing a different number here.
+        let nullifier = poseidon2_hash([commitment, secret, day as Field]);
         self.context.push_nullifier(nullifier);
 
-        // Publicly assert the commitment is a valid, non-revoked credential.
-        self.enqueue_self.assert_valid(commitment);
+        // Publicly assert the commitment is valid and that `day` is really today.
+        self.enqueue_self.assert_valid_today(commitment, day);
     }
 
-    // Public, contract-internal: asserts the commitment is currently valid.
+    // Public, contract-internal: asserts the commitment is currently valid and
+    // that the claimed day matches the block timestamp.
     #[external("public")]
     #[only_self]
-    fn assert_valid(commitment: Field) {
+    fn assert_valid_today(commitment: Field, day: u64) {
         assert(
             self.storage.valid_credentials.at(commitment).read(),
             "Invalid or revoked credential",
         );
+        // Only the public side can see the clock, which is why the day is
+        // checked here rather than inside the private function.
+        assert(day == self.context.timestamp() / SECONDS_PER_DAY, "Wrong day");
+    }
+
+    // Public view: the day number the contract is currently on. A terminal calls
+    // this before building a proof, so it passes the day the chain agrees with
+    // rather than the day its own clock believes in.
+    #[external("public")]
+    #[view]
+    fn current_day() -> u64 {
+        self.context.timestamp() / SECONDS_PER_DAY
     }
 
     // Public view: check whether a commitment is currently valid.

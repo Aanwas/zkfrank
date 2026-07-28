@@ -2,6 +2,9 @@ use aztec::{protocol::address::AztecAddress, test::helpers::test_environment::Te
 
 use zkfrank_contract::StudentId;
 
+// Must match SECONDS_PER_DAY in the contract.
+global SECONDS_PER_DAY: u64 = 86400;
+
 // Shared setup for every test: boot the fake network, create the university
 // account, and deploy StudentId with that account as admin.
 //
@@ -28,4 +31,18 @@ pub unconstrained fn setup() -> (TestEnvironment, AztecAddress, AztecAddress) {
         env.deploy("@zkfrank_contract/StudentId").with_public_initializer(admin, initializer_call);
 
     (env, contract_address, admin)
+}
+
+// Moves the chain a full day forward and returns the day number the contract
+// will compute from the new block timestamp.
+//
+// TXE block timestamps do not advance on their own, so a test that wants to be
+// "on a given day" has to say so. Stepping relative to the last block (rather
+// than jumping to a fixed date) keeps this safe: set_next_block_timestamp
+// refuses to travel backwards, and calling this twice always lands on two
+// genuinely different days.
+pub unconstrained fn advance_to_next_day(env: TestEnvironment) -> u64 {
+    let timestamp = env.last_block_timestamp() + SECONDS_PER_DAY;
+    env.mine_block_at(timestamp);
+    timestamp / SECONDS_PER_DAY
 }
