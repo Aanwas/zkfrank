@@ -1,61 +1,80 @@
 # nfc_writer.py
+#
+# Writes a (student_id, secret) pair onto an NTAG215 card.
+#
+# Layout: each value is one Aztec Field serialized big-endian into 32 bytes,
+# so the payload is 64 bytes living in pages 4..19 (NTAG215 user memory
+# starts at page 4 and holds 504 bytes, so there is room to spare).
+#
+# Usage: python3 nfc_writer.py <student_id> <secret>
 import sys
 import time
 import board
 import busio
 from adafruit_pn532.i2c import PN532_I2C
 
+from nfc_layout import (
+    FIRST_PAGE,
+    LAST_PAGE,
+    PAGE_SIZE,
+    PAYLOAD_BYTES,
+    encode_payload,
+    parse_field,
+)
+
+
+def write_payload(pn532, payload):
+    """Write the payload page by page, then read it back and verify."""
+    for offset in range(0, len(payload), PAGE_SIZE):
+        page = FIRST_PAGE + offset // PAGE_SIZE
+        pn532.ntag2xx_write_block(page, payload[offset:offset + PAGE_SIZE])
+        # NTAG215 needs a moment to commit each page.
+        time.sleep(0.015)
+
+    written = bytearray()
+    for page in range(FIRST_PAGE, LAST_PAGE + 1):
+        page_data = pn532.ntag2xx_read_block(page)
+        if page_data is None:
+            raise RuntimeError(f"Verification failed: page {page} could not be read back")
+        # The driver may return a 16-byte window; only the first 4 bytes are this page.
+        written.extend(page_data[0:PAGE_SIZE])
+        time.sleep(0.005)
+
+    if bytes(written) != payload:
+        raise RuntimeError("Verification failed: data read back does not match what was written")
+
+
 def main():
-    if len(sys.argv) < 2:
-        print("Error: No payload provided to the hardware worker.")
-        sys.exit(1)
+    if len(sys.argv) != 3:
+        raise SystemExit("Usage: python3 nfc_writer.py <student_id> <secret>")
 
-    hex_payload = sys.argv[1]
-    
-    try:
-        payload_bytes = bytes.fromhex(hex_payload)
-    except ValueError:
-        print("Error: Invalid HEX payload format.")
-        sys.exit(1)
+    student_id = parse_field(sys.argv[1], "student_id")
+    secret = parse_field(sys.argv[2], "secret")
 
-    if len(payload_bytes) != 160:
-        print(f"Error: Expected exactly 160 bytes. Got {len(payload_bytes)}.")
-        sys.exit(1)
-
-    print(f"Hardware Worker Active. Payload received (160 bytes).")
+    payload = encode_payload(student_id, secret)
 
     i2c_bus = busio.I2C(board.SCL, board.SDA)
     pn532 = PN532_I2C(i2c_bus, debug=False)
-    
-    print("\nPlease tap the NTAG215 card to the reader to write the ZK-Passport...")
-    
+
+    print(f"Writing {PAYLOAD_BYTES} bytes into pages {FIRST_PAGE}..{LAST_PAGE}")
+    print("Tap the NTAG215 card to the reader...")
+
     while True:
         uid = pn532.read_passive_target(timeout=0.5)
-        if uid is not None:
-            hex_uid = "".join([f"{b:02X}" for b in uid])
-            print(f"Card detected! UID: {hex_uid}")
-            
-            try:
-                print("Burning cryptographic payload into physical memory...")
-                for i in range(0, len(payload_bytes), 4):
-                    page_number = 4 + (i // 4)
-                    chunk = payload_bytes[i:i+4]
-                    
-                    pn532.ntag2xx_write_block(page_number, chunk)
-                    
-                    # giving time to ntag215 to write the information 
-                    time.sleep(0.015) 
-                    
-                    if page_number % 10 == 0:
-                        print(f"   ... reached page {page_number}/43")
-                
-                print("\nWRITE COMPLETE! The 160-byte ZK-Passport is securely locked in the chip.")
-                break
-            except Exception as e:
-                print(f"Physical write error on card: {e}")
-                break
-                
-        time.sleep(0.2)
+        if uid is None:
+            time.sleep(0.2)
+            continue
+
+        hex_uid = "".join(f"{b:02X}" for b in uid)
+        print(f"Card detected, UID: {hex_uid}")
+
+        write_payload(pn532, payload)
+
+        print("Write complete and verified.")
+        print(f"  student_id: {student_id}")
+        print(f"  secret    : {secret}")
+        return
+
 
 if __name__ == "__main__":
     main()
