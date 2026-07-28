@@ -1,23 +1,45 @@
+# Secrets & Environment (hardened protection against leaks)
+*.env
+.env.*
+*.secret
+*.pem
+*.key
+
 # Node.js
 node_modules/
-.env
 npm-debug.log
+yarn-error.log
 
 # Python
 __pycache__/
 *.py[cod]
 *venv/
 .env/
+.venv/
+build/
+dist/
 
-# Noir / Aztec (Smart Contracts & Circuits)
+# Noir / Aztec (Smart Contracts, Circuits & Proofs)
 target/
 export/
+proofs/
+witness/
+*.tr
+circuit.json
 
 # Database (never commit SQLite data)
 proofs.db
 *.db
 *.sqlite
 *.sqlite3
+
+# IDE / Editors (may contain local tokens and paths)
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
 
 # OS Files
 .DS_Store
