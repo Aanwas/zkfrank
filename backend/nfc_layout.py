@@ -65,6 +65,20 @@ def parse_field(raw, name):
     return check_field(value, name)
 
 
+def parse_signature(raw):
+    """Parse a hex string into the raw 64 signature bytes.
+
+    The signature arrives as hex rather than decimal because it is not a number:
+    r and s are two separate 32-byte halves, and reading them as one integer
+    would lose any leading zero byte in r.
+    """
+    try:
+        signature = bytes.fromhex(raw)
+    except ValueError:
+        raise ValueError(f"signature must be hex, got {raw!r}")
+    return check_signature(signature)
+
+
 def encode_payload(student_id, secret, signature):
     """Serialize a credential into the 128 bytes stored on the card."""
     check_field(student_id, "student_id")

@@ -1,11 +1,12 @@
 # nfc_reader.py
 #
-# Reads a (student_id, secret) pair written by nfc_writer.py and prints it.
+# Reads the credential written by nfc_writer.py off a card and prints it:
+# student_id, secret, and the college signature over their commitment.
 #
 # Usage: python3 nfc_reader.py [--once] [--timeout SECONDS]
 #
-# With --once the pair is printed to stdout as a single JSON line and nothing
-# else, so a remote caller can parse it straight off an SSH pipe.
+# With --once the credential is printed to stdout as a single JSON line and
+# nothing else, so a remote caller can parse it straight off an SSH pipe.
 #
 # This script runs on the Raspberry Pi only: `board` and `busio` talk to real
 # GPIO/I2C pins, so it cannot run on the PC. The Pi is only ever a card reader -
@@ -24,9 +25,9 @@ import board
 import busio
 from adafruit_pn532.i2c import PN532_I2C
 
-# Shared layout module: the single source of truth for how the pair is stored on
-# the card. nfc_writer.py imports the same constants, so the two can never
-# disagree about which pages hold what.
+# Shared layout module: the single source of truth for how the credential is
+# stored on the card. nfc_writer.py imports the same constants, so the two can
+# never disagree about which pages hold what.
 from nfc_layout import FIRST_PAGE, LAST_PAGE, PAGE_SIZE, decode_payload
 
 
@@ -34,8 +35,8 @@ def read_payload(pn532):
     """Read the raw payload bytes out of the card's user memory.
 
     An NTAG215 is addressed in 4-byte "pages" rather than as one flat blob, so
-    the 64-byte payload has to be collected one page at a time and concatenated
-    back together in order.
+    the payload has to be collected one page at a time and concatenated back
+    together in order.
     """
     # bytearray is the mutable sibling of bytes - it can grow as pages arrive.
     payload = bytearray()
@@ -61,7 +62,7 @@ def read_payload(pn532):
 
 
 def main(once, timeout):
-    """Wait for a card, decode the pair off it, print it, and stop.
+    """Wait for a card, decode the credential off it, print it, and stop.
 
     `once` selects the output format: True gives one machine-readable JSON line
     on stdout, False gives human-readable lines. `timeout` is how many seconds
@@ -103,17 +104,25 @@ def main(once, timeout):
         hex_uid = "".join(f"{b:02X}" for b in uid)
         print(f"Card detected, UID: {hex_uid}", file=sys.stderr)
 
-        # Raw bytes in, two integers out. decode_payload also rejects a blank or
-        # foreign card, whose bytes would not form valid Field elements.
-        student_id, secret = decode_payload(read_payload(pn532))
+        # Raw bytes in, a whole credential out. decode_payload also rejects a
+        # blank or foreign card, whose bytes would not form valid Field elements.
+        student_id, secret, signature = decode_payload(read_payload(pn532))
 
         if once:
             # Field elements run up to 254 bits, so emit decimal strings: a JSON
             # number would be truncated to a float64 by the JavaScript caller.
-            print(json.dumps({"student_id": str(student_id), "secret": str(secret)}))
+            # The signature is hex instead, because it is two 32-byte halves
+            # rather than one number - see nfc_layout.parse_signature. Whatever
+            # form is chosen here, nfc_writer.py --signature must accept it.
+            print(json.dumps({
+                "student_id": str(student_id),
+                "secret": str(secret),
+                "signature": signature.hex(),
+            }))
         else:
             print(f"  student_id: {student_id}")
             print(f"  secret    : {secret}")
+            print(f"  signature : {signature.hex()}")
 
         # One card is the whole job in both modes - leave the loop by returning.
         return
@@ -126,13 +135,13 @@ if __name__ == "__main__":
     # --help for us, and rejects an unknown flag instead of ignoring it. That
     # matters over SSH, where a silently dropped --once would put human text on
     # stdout and break the caller's JSON parse.
-    parser = argparse.ArgumentParser(description="Read a (student_id, secret) pair from an NFC card.")
+    parser = argparse.ArgumentParser(description="Read a student credential from an NFC card.")
 
     # store_true makes this a switch: present -> True, absent -> False.
     parser.add_argument(
         "--once",
         action="store_true",
-        help="wait for one card, print {student_id, secret} as JSON to stdout, then exit",
+        help="wait for one card, print {student_id, secret, signature} as JSON to stdout, then exit",
     )
 
     # type=float means args.timeout arrives as a number, not the string "30".
