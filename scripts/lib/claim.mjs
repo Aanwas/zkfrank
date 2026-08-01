@@ -19,7 +19,7 @@ const NODE_URL = 'http://localhost:8080';
 const ARTIFACT = new URL('../../circuits/target/zkfrank_contract-StudentId.json', import.meta.url);
 const STATE_FILE = new URL('../../.zkfrank-state.json', import.meta.url);
 
-function requireEnv(name) {
+export function requireEnv(name) {
     const value = process.env[name];
     if (!value) {
         throw new Error(`Missing required environment variable: ${name}`);
@@ -27,32 +27,27 @@ function requireEnv(name) {
     return value;
 }
 
-// execFileSync keeps the local shell out of it, but ssh's last argument is run
-// by the shell on the far side, and this value is interpolated into it. So the
-// path is restricted to characters that cannot mean anything to a shell. ~ is
-// allowed: the remote shell expands it to a home directory and nothing else.
-function requireRemotePath(name) {
-    const value = requireEnv(name);
-    if (!/^[\w~./-]+$/.test(value)) {
-        throw new Error(`${name} must be a plain path, got ${JSON.stringify(value)}`);
-    }
-    return value;
+/**
+ * Asks the Pi to do one thing. `action` is 'read' or 'write' and nothing else:
+ * backend/pi_agent.sh is the forced command on that key and refuses anything it
+ * does not recognise. No path or argument from this side reaches a shell there.
+ */
+export function askPi(action, input) {
+    return execFileSync('ssh', [
+        '-p', requireEnv('ZKFRANK_PI_PORT'), requireEnv('ZKFRANK_PI_HOST'), action,
+    ], {
+        input,
+        encoding: 'utf8',
+        // stdout captured, stderr inherited so the reader's "Tap a card..."
+        // prompt still reaches whoever is watching.
+        stdio: [input === undefined ? 'ignore' : 'pipe', 'pipe', 'inherit'],
+    });
 }
 
 // Pull the credential off an NFC card. The Pi is the only machine wired to the
-// reader, so the reader runs there over SSH and we parse what it prints.
+// reader, so the reader runs there and we parse what it prints.
 function readCard() {
-    const host = requireEnv('ZKFRANK_PI_HOST');
-    const port = requireEnv('ZKFRANK_PI_PORT');
-    const script = requireRemotePath('ZKFRANK_PI_SCRIPT');
-
-    const stdout = execFileSync('ssh', ['-p', port, host, `python3 ${script} --once`], {
-        encoding: 'utf8',
-        // stdout captured for the JSON, stderr inherited so the reader's
-        // "Tap a card..." prompt still reaches whoever is watching.
-        stdio: ['ignore', 'pipe', 'inherit'],
-    });
-
+    const stdout = askPi('read');
     const { student_id, secret, signature } = JSON.parse(stdout);
     if (student_id === undefined || secret === undefined || signature === undefined) {
         throw new Error(`Card payload is missing student_id, secret or signature: ${stdout}`);

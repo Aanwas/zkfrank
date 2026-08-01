@@ -174,17 +174,27 @@ aztec start --local-network
 ```
 
 Issue a card. This deploys the contract pinned to the college key, mints a credential,
-and prints the command that writes it:
+signs it, and writes it to a card on the Pi — tap a blank card when asked:
 
 ```bash
 node --env-file=.env scripts/issue_card.mjs 1001
+node --env-file=.env scripts/issue_card.mjs 2002   # a second student, same contract
 ```
 
-Run that printed command **on the Pi**, with a card on the reader. Then claim the
-discount:
+The contract from the previous run is reused by default, so several students can hold
+valid cards at once. `--redeploy` starts a fresh one, which invalidates every card issued
+before it. `--no-write` prints the credential instead of writing it.
+
+Then claim the discount:
 
 ```bash
 node --env-file=.env scripts/validate_demo.mjs
+```
+
+Or watch it happen, at `http://localhost:4173`:
+
+```bash
+node --env-file=.env frontend/server.mjs
 ```
 
 It reads the card over SSH, builds a proof, claims the discount, then tries again the

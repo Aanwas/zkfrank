@@ -16,7 +16,14 @@
 #
 # Usage:
 #   python3 nfc_writer.py --student-id 1001 --secret <decimal> --signature <hex>
+#   python3 nfc_writer.py --stdin        # same three fields as one JSON object
+#
+# The --stdin form exists so the issuer on the PC can pipe a credential straight
+# in over SSH. Passing it as arguments would put the secret in the process list
+# on this machine, where any local user could read it with ps.
 import argparse
+import json
+import sys
 import time
 
 import board
@@ -53,6 +60,25 @@ def write_payload(pn532, payload):
 
     if bytes(written) != payload:
         raise RuntimeError("Verification failed: data read back does not match what was written")
+
+
+def read_stdin_credential():
+    """Read one JSON credential from stdin, in the shape nfc_reader.py emits.
+
+    Same field names and same encodings on purpose: whatever comes off a card can
+    be piped straight back onto another one.
+    """
+    raw = sys.stdin.read()
+    try:
+        payload = json.loads(raw)
+    except json.JSONDecodeError as e:
+        raise ValueError(f"stdin must be one JSON object, got {raw[:80]!r}") from e
+
+    missing = [k for k in ("student_id", "secret", "signature") if k not in payload]
+    if missing:
+        raise ValueError(f"stdin credential is missing {', '.join(missing)}")
+
+    return payload["student_id"], payload["secret"], payload["signature"]
 
 
 def main(student_id_raw, secret_raw, signature_raw, timeout):
@@ -101,18 +127,39 @@ if __name__ == "__main__":
         description="Write a student credential issued on the PC onto an NTAG215 card.",
     )
 
-    # required=True on all three: a card written with a missing field would look
-    # fine here and fail much later, inside a ZK circuit, as "invalid signature".
-    parser.add_argument("--student-id", required=True, help="student id as a decimal integer")
-    parser.add_argument("--secret", required=True, help="card secret as a decimal integer")
+    parser.add_argument(
+        "--stdin",
+        action="store_true",
+        help="read {student_id, secret, signature} as JSON on stdin instead of flags",
+    )
+    parser.add_argument("--student-id", help="student id as a decimal integer")
+    parser.add_argument("--secret", help="card secret as a decimal integer")
     parser.add_argument(
         "--signature",
-        required=True,
         help="college signature as 128 hex characters (raw r||s, 64 bytes)",
     )
     parser.add_argument("--timeout", type=float, default=30.0, help="seconds to wait for a card")
 
     args = parser.parse_args()
 
-    # argparse turns --student-id into args.student_id: dashes become underscores.
-    main(args.student_id, args.secret, args.signature, args.timeout)
+    if args.stdin:
+        student_id, secret, signature = read_stdin_credential()
+    else:
+        # Checked here rather than with required=True, which cannot express
+        # "these three unless --stdin". A card written with a missing field would
+        # look fine here and fail much later, inside a ZK circuit.
+        missing = [
+            name
+            for name, value in (
+                ("--student-id", args.student_id),
+                ("--secret", args.secret),
+                ("--signature", args.signature),
+            )
+            if value is None
+        ]
+        if missing:
+            raise SystemExit(f"Missing {', '.join(missing)} (or pass --stdin)")
+        # argparse turns --student-id into args.student_id: dashes become underscores.
+        student_id, secret, signature = args.student_id, args.secret, args.signature
+
+    main(student_id, secret, signature, args.timeout)
