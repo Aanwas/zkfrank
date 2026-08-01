@@ -20,7 +20,7 @@
 // hold valid cards at the same time.
 
 import { randomBytes } from 'node:crypto';
-import { readFileSync, writeFileSync, existsSync } from 'node:fs';
+import { readFileSync, writeFileSync, existsSync, statSync, chmodSync } from 'node:fs';
 import { EmbeddedWallet } from '@aztec/wallets/embedded';
 import { getInitialTestAccountsData } from '@aztec/accounts/testing';
 import { Contract } from '@aztec/aztec.js/contracts';
@@ -58,15 +58,26 @@ const studentId = BigInt(positional);
 // they serialize to JSON as they are.
 function loadOrCreateCollegeKeys() {
     if (existsSync(KEY_FILE)) {
+        // Created before this script enforced the mode, or loosened since.
+        // Whoever can read this file can mint valid student credentials, so it
+        // is corrected rather than merely reported.
+        const mode = statSync(KEY_FILE).mode & 0o777;
+        if (mode !== 0o600) {
+            chmodSync(KEY_FILE, 0o600);
+            console.error(`college-key.json was ${mode.toString(8)}, tightened to 600`);
+        }
         return JSON.parse(readFileSync(KEY_FILE, 'utf8'));
     }
 
     const keys = generateSchoolKeys();
-    // The private key is written to disk, so keep it out of git. college-key.json
-    // is listed in .gitignore; this check is here because a leaked issuing key
-    // means anyone can mint student credentials.
-    writeFileSync(KEY_FILE, JSON.stringify(keys, null, 2));
-    console.error('Generated a new college keypair at college-key.json');
+    // 0o600 from the start: the default would be 644 under a typical umask,
+    // leaving the issuing key readable by every user on the machine. It is also
+    // gitignored, but that only stops it reaching a remote.
+    writeFileSync(KEY_FILE, JSON.stringify(keys, null, 2), { mode: 0o600 });
+    // writeFileSync applies mode only when creating, and the umask can still
+    // clear bits, so state it explicitly rather than trusting the default.
+    chmodSync(KEY_FILE, 0o600);
+    console.error('Generated a new college keypair at college-key.json (mode 600)');
     return keys;
 }
 
