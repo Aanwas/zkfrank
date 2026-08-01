@@ -278,3 +278,26 @@ would fix it and would also stop the card from being portable between devices.
 
 **The contract has tests, not an audit.** Fifteen TXE tests and a written threat model are
 not the same thing as a formal review.
+
+### On dependencies and `npm audit`
+
+`npm audit` reports a long list here. Nearly all of it lives in the transitive tree of
+`@aztec/*` — this project declares four direct dependencies — and the count is inflated by
+one advisory being attributed to every package that depends on the affected one.
+
+The advisories fall into three groups. WebSocket denial of service in `ws` and `undici`
+needs the process to speak WebSocket to a hostile peer; this code talks HTTP to a local
+node. Header-parsing denial of service in `undici` and OpenTelemetry needs an attacker
+able to send requests in; nothing here accepts inbound connections. Command injection in
+`systeminformation` needs control of local system state — a NetworkManager profile name,
+say — which presupposes the local access it would otherwise grant.
+
+They are accepted **for this threat model**, not in general. Revisit if the node is ever
+exposed beyond localhost, if the visualiser is bound to anything other than `127.0.0.1`,
+or when Aztec is upgraded — which is where the real fix comes from, since the versions are
+pinned inside the framework rather than here.
+
+Do not run `npm audit fix --force`. It resolves the advisories by installing
+`@aztec/aztec.js@0.79.0` — three majors back from the pinned 4.3.0 — which does not build
+this project at all. It is a reminder that the tool optimises the advisory count and
+nothing else.
