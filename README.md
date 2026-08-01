@@ -2,32 +2,68 @@
 
 Prove you are a valid student without revealing who you are.
 
-A university issues credentials on the [Aztec Network](https://aztec.network). Only a
-commitment ever touches the chain — the student id itself never leaves the card.
-A student then privately proves knowledge of the values behind a registered
-commitment, and a nullifier makes each credential usable exactly once (one discount
-per student, one entry per pass).
+A college issues credentials on the [Aztec Network](https://aztec.network). Only a
+commitment ever touches the chain — the student id itself never leaves the card. The
+student then privately proves two things at once: that they know the values behind a
+registered commitment, and that the college signed that commitment. A nullifier scoped
+to the day makes the credential usable once per day.
 
 The credential lives on a physical NFC card, read by a Raspberry Pi.
+
+**Target scenario:** a student claims a discount at a library terminal. The library is a
+third party — it has no access to the college's registry — which is exactly why the card
+carries a signature and not just a commitment.
 
 ---
 
 ## How it works
 
-The contract stores `commitment = poseidon2([student_id, secret])` and nothing else:
+The contract stores `commitment = poseidon2([student_id, secret])` and the college's
+public key. Nothing else.
 
-1. **Issue** — the university computes the commitment off-chain and calls
-   `issue_credential(commitment)`. The chain sees a hash, not an identity.
-2. **Validate** — the student calls the private function `validate(student_id, secret)`.
-   It recomputes the commitment inside the circuit, pushes
-   `nullifier = poseidon2([commitment, secret])`, and asks the public side to assert
-   the credential is still valid. The inputs never appear in the transaction.
-3. **Reuse is rejected** — a second `validate` with the same credential emits the same
-   nullifier, and the network refuses it: `Attempted to emit duplicate siloed nullifier`.
-4. **Revoke** — the university can call `revoke_credential(commitment)` at any time.
+1. **Issue** — the college computes the commitment off-chain, signs it with its
+   secp256r1 key, and calls `issue_credential(commitment)`. The chain sees a hash, not
+   an identity. The card gets `student_id`, `secret` and the 64-byte signature.
+2. **Validate** — the student calls the private function
+   `validate(student_id, secret, signature, day)`. Inside the circuit it:
+   - recomputes the commitment,
+   - verifies the college signature over it with `ecdsa_secp256r1::verify_signature`,
+   - pushes `nullifier = poseidon2([commitment, secret, day])`,
+   - and asks the public side to assert the credential is valid and that `day` is really
+     today.
 
-Privacy comes from the commitment (the id is never published) and single-use comes from
-the nullifier (which is public, but reveals nothing about the id).
+   None of the inputs appear in the transaction.
+3. **Reuse the same day is rejected** — a second `validate` emits the same nullifier and
+   the network refuses it: `Attempted to emit duplicate siloed nullifier`. Tomorrow the
+   day changes, the nullifier changes, and the student can claim again.
+4. **Revoke** — the college can call `revoke_credential(commitment)` at any time.
+
+Three properties, three mechanisms:
+
+| Property | Mechanism |
+|---|---|
+| The id is never published | commitment — only the hash goes on chain |
+| One discount per day | nullifier includes the day, checked against block time |
+| A third party can trust the card | college signature, verified inside the circuit |
+
+### Why both a commitment and a signature
+
+The commitment model alone works only inside the college's own ecosystem: a verifier has
+to consult the registry the college owns. A library does not have that access. The
+signature lets anyone verify issuance against the college's public key, without asking
+the college anything.
+
+### Why the day is checked publicly
+
+A private circuit cannot see a clock. If `day` were taken on trust, a student could mint
+unlimited discounts by passing a different number each time. So `validate` enqueues a
+public call that compares `day` against the block timestamp.
+
+### Why the public key is not on the card
+
+A card carrying its own public key could be handed a forged signature together with the
+matching key, and would verify happily. The trust anchor has to be the key pinned into
+the contract at deployment.
 
 ---
 
@@ -39,13 +75,15 @@ the nullifier (which is public, but reveals nothing about the id).
                               | SSH
                               v
                         [PC / WSL2]                 PXE builds the proof
-                              |
+                              |                     the college signing key lives here
                               v
                      [Aztec local network]          contract lives here
 ```
 
-Proof generation is heavy, so it runs on x86 rather than on the Pi. The Pi does one
-job: read the card and hand over the numbers.
+Proof generation is heavy, so it runs on x86 rather than on the Pi. Issuance also runs on
+the PC: the commitment is a poseidon2 hash that only the Aztec stack can compute, and the
+signing key has no business sitting on a card-writing terminal. The Pi receives three
+finished values and writes them — it learns nothing it could forge a card with.
 
 ---
 
@@ -56,12 +94,16 @@ circuits/
   zkfrank_contract/    the StudentId contract (Noir / Aztec.nr)
   zkfrank_test/        TXE tests, a separate crate so test edits do not
                        invalidate the contract artifact
+    fixture.nr         generated signatures - Noir can verify but not sign
 scripts/
-  validate_demo.mjs    end-to-end demo against a local network
+  issue_card.mjs       college side: deploy, sign, issue, print the writer command
+  validate_demo.mjs    end-to-end demo: read a card, prove, claim, fail on reuse
+  ecdsa_fixture.mjs    regenerates circuits/zkfrank_test/src/fixture.nr
 backend/
   nfc_layout.py        single source of truth for the on-card format
-  nfc_writer.py        write (student_id, secret) to a card
-  nfc_reader.py        read it back
+  nfc_writer.py        write a credential to a card
+  nfc_reader.py        read it back as JSON
+  src/crypto/ecdsa.js  college keygen and low-S signing
 ```
 
 ---
@@ -70,6 +112,7 @@ backend/
 
 * **Contract:** Noir / Aztec.nr, Aztec **4.3.0** (pinned — Aztec breaks APIs between majors)
 * **Client:** `@aztec/aztec.js` + `@aztec/wallets` 4.3.0, Node.js 20.10+
+* **Signatures:** secp256r1 (P-256), raw `r||s`, low-S normalized as Noir requires
 * **Hardware:** Raspberry Pi + Waveshare PN532 NFC HAT (I2C), NTAG215 cards
 * **Card side:** Python 3 with `adafruit-circuitpython-pn532`
 
@@ -93,14 +136,19 @@ Then install the JS dependencies:
 git clone https://github.com/Aanwas/zkfrank.git
 cd zkfrank
 npm install
+cp .env.example .env     # then fill in your Pi's address
 ```
 
 ### Compile and test the contract
 
+`circuits/target/` is gitignored, so the artifact has to be built before anything else
+can run:
+
 ```bash
 cd circuits
 aztec compile          # produces target/zkfrank_contract-StudentId.json
-aztec test             # 8 TXE tests: access control, revocation, private validate, reuse
+aztec test             # 14 tests: access control, revocation, private validate,
+                       # daily reuse, and signature forgery
 ```
 
 ### Run the end-to-end demo
@@ -111,14 +159,29 @@ Start a local network in one terminal:
 aztec start --local-network
 ```
 
-And run the demo in another:
+Issue a card. This deploys the contract pinned to the college key, mints a credential,
+and prints the command that writes it:
 
 ```bash
-node scripts/validate_demo.mjs
+node --env-file=.env scripts/issue_card.mjs 1001
 ```
 
-It deploys the contract, issues a credential, validates it privately, then tries to
-reuse it and shows the network rejecting the duplicate nullifier.
+Run that printed command **on the Pi**, with a card on the reader. Then claim the
+discount:
+
+```bash
+node --env-file=.env scripts/validate_demo.mjs
+```
+
+It reads the card over SSH, builds a proof, claims the discount, then tries again the
+same day and shows the network rejecting the duplicate nullifier.
+
+On first run `issue_card.mjs` creates `college-key.json`. **Whoever holds that file can
+mint valid student credentials** — it is gitignored, keep it that way. The deployed
+address goes to `.zkfrank-state.json`, which the demo reads.
+
+If the local network is restarted, redeploy and reissue: the contract address changes,
+and a card issued against the old one is not registered in the new registry.
 
 ---
 
@@ -140,15 +203,24 @@ sudo apt update && sudo apt install python3-pip -y
 pip3 install adafruit-blinka adafruit-circuitpython-pn532 --break-system-packages
 ```
 
-### Write and read a card
+### On-card format
 
-Both values are Aztec `Field` elements, stored big-endian as 32 bytes each in pages
-4..19. The writer verifies the card by reading it back, and a blank card is rejected
-because `0xFF...` is not a valid field element.
+128 bytes in pages 4..35, of the 504 an NTAG215 offers:
+
+```
+[ 32 bytes student_id ][ 32 bytes secret ][ 64 bytes college signature ]
+```
+
+`student_id` and `secret` are Aztec `Field` elements, big-endian. The signature is raw
+`r||s` — two independent 32-byte halves, which is why it travels as hex rather than as a
+decimal string: read as one integer, a leading zero byte in `r` would be lost.
+
+The writer reads the card back to verify what it wrote. A blank card is rejected because
+`0xFF...` is not a valid field element.
 
 ```bash
-python3 backend/nfc_writer.py 1001 42
-python3 backend/nfc_reader.py
+python3 backend/nfc_writer.py --student-id 1001 --secret <decimal> --signature <hex>
+python3 backend/nfc_reader.py --once
 ```
 
 These run on the Pi only — there is no I2C bus on a PC.
@@ -157,16 +229,14 @@ These run on the Pi only — there is no I2C bus on a PC.
 
 ## Status
 
-Working: the contract with its TXE tests, the end-to-end demo against a local network,
-and the NFC write/read cycle.
+Working end-to-end: the college signs a commitment, the Pi writes the card, the terminal
+reads it over SSH, PXE builds the proof, the contract verifies the signature inside the
+circuit, and the daily nullifier blocks a second claim.
 
-In progress: wiring the card to the network, so that tapping a card triggers a real
-`validate` transaction.
+The project deliberately targets a local network rather than testnet — the contract, PXE,
+private execution and nullifiers behave identically, and testnet would only add block
+waits and faucet steps.
 
-The project deliberately targets a local network rather than testnet — the contract,
-PXE, private execution and nullifiers behave identically, and testnet would only add
-block waits and faucet steps.
-
-`backend/src/` still holds an earlier ECDSA-based iteration of this project
-(`issuer.js`, `verifier.js`, `prover.js`, SQLite logging). It is not part of the current
-flow and is kept only for reference.
+`backend/src/` still holds an earlier iteration of this project (`issuer.js`,
+`verifier.js`, `prover.js`, SQLite logging). Only `src/crypto/ecdsa.js` is part of the
+current flow; the rest is kept for reference.

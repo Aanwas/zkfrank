@@ -1,6 +1,9 @@
 # Secrets & Environment (hardened protection against leaks)
 *.env
 .env.*
+# The template carries no secrets and has to be committed - the .env.* rule
+# above would otherwise swallow it.
+!.env.example
 *.secret
 *.pem
 *.key
