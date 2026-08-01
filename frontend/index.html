@@ -1,0 +1,382 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>zkfrank — private student ID</title>
+<style>
+  :root {
+    --bg: #0a0d14;
+    --panel: #121722;
+    --line: #1e2635;
+    --text: #e6ebf5;
+    --muted: #7d8aa3;
+    --private: #5eead4;
+    --public: #818cf8;
+    --ok: #4ade80;
+    --bad: #fb7185;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    padding: 2.5rem 1.5rem 4rem;
+    background:
+      radial-gradient(1000px 500px at 20% -10%, #16203a 0%, transparent 60%),
+      radial-gradient(900px 500px at 90% 0%, #1b1630 0%, transparent 55%),
+      var(--bg);
+    color: var(--text);
+    font: 15px/1.55 ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    min-height: 100vh;
+  }
+
+  .wrap { max-width: 1180px; margin: 0 auto; }
+
+  header { margin-bottom: 2rem; }
+  h1 { margin: 0 0 .35rem; font-size: 1.6rem; letter-spacing: -.02em; font-weight: 650; }
+  .sub { color: var(--muted); margin: 0; }
+
+  /* ---- pipeline ---------------------------------------------------- */
+
+  .stage-wrap { position: relative; margin: 2.5rem 0 1.25rem; }
+
+  .boundary {
+    position: absolute;
+    top: -1.4rem; bottom: -1.4rem;
+    left: 60%;
+    border-left: 2px dashed #33405c;
+    pointer-events: none;
+  }
+  .boundary span {
+    position: absolute; top: -1.4rem; left: 50%;
+    transform: translateX(-50%);
+    white-space: nowrap;
+    font-size: .7rem; letter-spacing: .08em; text-transform: uppercase;
+    color: var(--muted); background: var(--bg); padding: 0 .6rem;
+  }
+
+  .stages { display: grid; grid-template-columns: repeat(5, 1fr); gap: .6rem; }
+
+  .stage {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 1rem .9rem;
+    transition: border-color .3s, box-shadow .3s, transform .3s;
+  }
+  .stage .icon { font-size: 1.35rem; line-height: 1; }
+  .stage h3 { margin: .5rem 0 .2rem; font-size: .92rem; font-weight: 600; }
+  .stage p { margin: 0; font-size: .78rem; color: var(--muted); min-height: 2.4em; }
+
+  .stage[data-side="private"] { border-top: 2px solid #234b47; }
+  .stage[data-side="public"]  { border-top: 2px solid #2c3160; }
+
+  .stage.active {
+    border-color: var(--private);
+    box-shadow: 0 0 0 1px var(--private), 0 14px 40px -18px var(--private);
+    transform: translateY(-3px);
+  }
+  .stage[data-side="public"].active {
+    border-color: var(--public);
+    box-shadow: 0 0 0 1px var(--public), 0 14px 40px -18px var(--public);
+  }
+  .stage.done { border-color: #24513a; }
+  .stage.failed {
+    border-color: var(--bad);
+    box-shadow: 0 0 0 1px var(--bad), 0 14px 40px -18px var(--bad);
+    animation: shake .4s;
+  }
+  @keyframes shake {
+    0%,100% { transform: translateX(0); }
+    25% { transform: translateX(-5px); }
+    75% { transform: translateX(5px); }
+  }
+
+  /* ---- travelling data chips --------------------------------------- */
+
+  .track { position: relative; height: 46px; margin-top: .9rem; }
+  .track::before {
+    content: ""; position: absolute; left: 4%; right: 4%; top: 50%;
+    height: 2px; background: linear-gradient(90deg, #24614f 0%, #24614f 56%, #33405c 56%, #3a3f78 100%);
+    opacity: .55;
+  }
+
+  .chip {
+    position: absolute; top: 50%; left: 6%;
+    transform: translate(-50%, -50%);
+    padding: .25rem .6rem;
+    font-size: .72rem; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    border-radius: 999px;
+    background: #10241f; color: var(--private); border: 1px solid #2b6153;
+    white-space: nowrap;
+    opacity: 0;
+    transition: left 1.5s cubic-bezier(.4,0,.2,1), opacity .5s, filter .5s, transform .5s;
+  }
+  .chip.public { background: #171a34; color: var(--public); border-color: #3b4383; }
+  .chip.show { opacity: 1; }
+  .chip.dissolved { opacity: 0; filter: blur(6px); transform: translate(-50%, -50%) scale(.6); }
+
+  /* ---- lower panels ------------------------------------------------- */
+
+  .cols { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-top: 1.6rem; }
+  @media (max-width: 860px) {
+    .cols { grid-template-columns: 1fr; }
+    .stages { grid-template-columns: repeat(2, 1fr); }
+    .boundary { display: none; }
+  }
+
+  .panel {
+    background: var(--panel); border: 1px solid var(--line);
+    border-radius: 12px; padding: 1rem 1.1rem;
+  }
+  .panel h2 {
+    margin: 0 0 .7rem; font-size: .74rem; letter-spacing: .1em;
+    text-transform: uppercase; color: var(--muted); font-weight: 600;
+  }
+
+  .facts { list-style: none; margin: 0; padding: 0; }
+  .facts li {
+    display: flex; justify-content: space-between; gap: 1rem;
+    padding: .42rem 0; border-bottom: 1px solid var(--line);
+    font-size: .84rem;
+  }
+  .facts li:last-child { border-bottom: 0; }
+  .facts .k { color: var(--muted); }
+  .facts .v { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; text-align: right; word-break: break-all; }
+  .v.private { color: var(--private); }
+  .v.public { color: var(--public); }
+
+  #log {
+    margin: 0; height: 200px; overflow-y: auto;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: .78rem; color: #b9c4d8; white-space: pre-wrap;
+  }
+  #log .t { color: #55617a; }
+  #log .ok { color: var(--ok); }
+  #log .bad { color: var(--bad); }
+
+  /* ---- controls ------------------------------------------------------ */
+
+  .bar { display: flex; align-items: center; gap: 1rem; margin-top: 1.6rem; flex-wrap: wrap; }
+  button {
+    font: inherit; font-weight: 600;
+    padding: .7rem 1.5rem; border-radius: 10px; border: 0;
+    background: linear-gradient(135deg, #5eead4, #6366f1);
+    color: #06121a; cursor: pointer;
+    transition: opacity .2s, transform .1s;
+  }
+  button:hover:not(:disabled) { transform: translateY(-1px); }
+  button:disabled { opacity: .45; cursor: default; }
+  .elapsed { font-family: ui-monospace, monospace; color: var(--muted); font-size: .85rem; }
+  .verdict { font-weight: 600; }
+  .verdict.ok { color: var(--ok); }
+  .verdict.bad { color: var(--bad); }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <h1>zkfrank — private student ID</h1>
+    <p class="sub">Tap a card, prove enrolment, claim a discount. The student id never reaches the chain.</p>
+  </header>
+
+  <div class="stage-wrap">
+    <div class="boundary"><span>privacy boundary</span></div>
+    <div class="stages">
+      <div class="stage" data-side="private" data-stage="card">
+        <div class="icon">💳</div><h3>NFC card</h3>
+        <p>student_id, secret and the college signature — 128 bytes</p>
+      </div>
+      <div class="stage" data-side="private" data-stage="reader">
+        <div class="icon">📡</div><h3>Reader (Pi)</h3>
+        <p>reads the card, returns JSON over SSH</p>
+      </div>
+      <div class="stage" data-side="private" data-stage="pxe">
+        <div class="icon">🔐</div><h3>PXE — proof</h3>
+        <p>recomputes the commitment, verifies the signature, builds the proof</p>
+      </div>
+      <div class="stage" data-side="public" data-stage="chain">
+        <div class="icon">⛓️</div><h3>Aztec contract</h3>
+        <p>sees only a proof and a nullifier</p>
+      </div>
+      <div class="stage" data-side="public" data-stage="result">
+        <div class="icon">🎟️</div><h3>Discount</h3>
+        <p>granted once per day, per card</p>
+      </div>
+    </div>
+    <div class="track" id="track"></div>
+  </div>
+
+  <div class="bar">
+    <button id="run">Tap a card</button>
+    <span class="elapsed" id="elapsed"></span>
+    <span class="verdict" id="verdict"></span>
+  </div>
+
+  <div class="cols">
+    <div class="panel">
+      <h2>What each side knows</h2>
+      <ul class="facts" id="facts">
+        <li><span class="k">student id</span><span class="v private" data-f="studentId">—</span></li>
+        <li><span class="k">secret</span><span class="v private" data-f="secret">—</span></li>
+        <li><span class="k">college signature</span><span class="v private" data-f="signature">—</span></li>
+        <li><span class="k">contract</span><span class="v public" data-f="contract">—</span></li>
+        <li><span class="k">day</span><span class="v public" data-f="day">—</span></li>
+        <li><span class="k">nullifier</span><span class="v public" data-f="nullifier">—</span></li>
+      </ul>
+    </div>
+    <div class="panel">
+      <h2>Event log</h2>
+      <pre id="log"></pre>
+    </div>
+  </div>
+</div>
+
+<script>
+const $ = (s) => document.querySelector(s);
+const stages = [...document.querySelectorAll('.stage')];
+const stageEl = (name) => stages.find((s) => s.dataset.stage === name);
+
+let t0 = 0;
+let ticker = null;
+
+function log(text, cls = '') {
+  const at = ((Date.now() - t0) / 1000).toFixed(1).padStart(5);
+  $('#log').insertAdjacentHTML('beforeend',
+    `<span class="t">${at}s</span>  <span class="${cls}">${text}</span>\n`);
+  $('#log').scrollTop = $('#log').scrollHeight;
+}
+
+function setFact(name, value, truncate = 0) {
+  const el = document.querySelector(`[data-f="${name}"]`);
+  el.textContent = truncate && value.length > truncate
+    ? value.slice(0, truncate) + '…' : value;
+}
+
+function activate(name) {
+  stages.forEach((s) => s.classList.remove('active'));
+  const el = stageEl(name);
+  if (el) { el.classList.add('active'); }
+}
+
+function complete(name) { stageEl(name)?.classList.add('done'); }
+
+// A chip travels left to right. Chips carrying private values dissolve at the
+// boundary; that is the whole point of the picture, so it is not decoration.
+function sendChip(label, { to = 56, dissolve = true, kind = 'private' } = {}) {
+  const chip = document.createElement('div');
+  chip.className = `chip ${kind === 'public' ? 'public' : ''}`;
+  chip.textContent = label;
+  $('#track').append(chip);
+
+  requestAnimationFrame(() => {
+    chip.classList.add('show');
+    requestAnimationFrame(() => { chip.style.left = to + '%'; });
+  });
+
+  setTimeout(() => {
+    if (dissolve) {
+      chip.classList.add('dissolved');
+      setTimeout(() => chip.remove(), 700);
+    } else {
+      chip.style.opacity = '.35';
+      setTimeout(() => chip.remove(), 1500);
+    }
+  }, 1600);
+}
+
+const HANDLERS = {
+  'card:waiting': () => { activate('card'); log('waiting for a card…'); },
+
+  'card:read': (d) => {
+    complete('card'); activate('reader');
+    log(`card read: student ${d.studentId}`);
+    setFact('studentId', d.studentId);
+    setFact('secret', `${d.secretLength} random bits — never leaves this machine`);
+    setFact('signature', d.signaturePreview + '… (64 bytes)');
+    sendChip('student_id');
+    setTimeout(() => sendChip('secret'), 260);
+    setTimeout(() => sendChip('signature'), 520);
+  },
+
+  'contract:ready': (d) => {
+    complete('reader');
+    setFact('contract', d.address, 22);
+    log('attached to the deployed contract');
+  },
+
+  day: (d) => { setFact('day', d.day); log(`chain says day ${d.day}`); },
+
+  'proof:start': () => {
+    activate('pxe');
+    log('building the proof — commitment, signature check, nullifier');
+  },
+
+  'claim:ok': (d) => {
+    complete('pxe'); activate('chain');
+    log(`proof accepted on chain in ${d.ms} ms`, 'ok');
+    sendChip('zk proof', { to: 94, dissolve: false, kind: 'public' });
+    setTimeout(() => { complete('chain'); activate('result'); }, 900);
+  },
+
+  'replay:start': () => { log('same card, same day, second attempt…'); },
+
+  'replay:blocked': (d) => {
+    complete('result');
+    setFact('nullifier', d.nullifier, 22);
+    stageEl('chain').classList.remove('active');
+    stageEl('chain').classList.add('failed');
+    log('rejected: nullifier already spent — one discount per day', 'ok');
+    $('#verdict').textContent = 'Claimed once. Replay blocked.';
+    $('#verdict').className = 'verdict ok';
+  },
+
+  done: () => { finish(); },
+
+  error: (d) => {
+    log('error: ' + d.message, 'bad');
+    $('#verdict').textContent = 'Failed';
+    $('#verdict').className = 'verdict bad';
+    stages.find((s) => s.classList.contains('active'))?.classList.add('failed');
+    finish();
+  },
+};
+
+function finish() {
+  clearInterval(ticker);
+  stages.forEach((s) => s.classList.remove('active'));
+  $('#run').disabled = false;
+  $('#run').textContent = 'Run again';
+}
+
+$('#run').addEventListener('click', () => {
+  $('#run').disabled = true;
+  $('#log').textContent = '';
+  $('#verdict').textContent = '';
+  $('#track').textContent = '';
+  stages.forEach((s) => s.className = 'stage');
+  stages.forEach((s) => s.dataset.side === 'public'
+    ? s.setAttribute('data-side', 'public') : s.setAttribute('data-side', 'private'));
+  document.querySelectorAll('.v').forEach((v) => v.textContent = '—');
+
+  t0 = Date.now();
+  ticker = setInterval(() => {
+    $('#elapsed').textContent = ((Date.now() - t0) / 1000).toFixed(1) + 's';
+  }, 100);
+
+  const es = new EventSource('/run');
+  es.onmessage = (ev) => {
+    const { stage, ...data } = JSON.parse(ev.data);
+    HANDLERS[stage]?.(data);
+  };
+  es.onerror = () => { es.close(); finish(); };
+});
+
+// The stage cards lose their data-side attribute when reset above; restore the
+// original assignment once at load so the reset can rely on it.
+stages.forEach((s, i) => s.setAttribute('data-side', i < 3 ? 'private' : 'public'));
+</script>
+</body>
+</html>
