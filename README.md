@@ -263,6 +263,18 @@ The project deliberately targets a local network rather than testnet — the con
 private execution and nullifiers behave identically, and testnet would only add block
 waits and faucet steps.
 
-`backend/src/` still holds an earlier iteration of this project (`issuer.js`,
-`verifier.js`, `prover.js`, SQLite logging). Only `src/crypto/ecdsa.js` is part of the
-current flow; the rest is kept for reference.
+### Known limits
+
+**The card is a bearer credential.** NTAG215 hands its 128 bytes to any reader, so a card
+can be cloned by anyone who gets close enough to one, and the student id on it is not
+hidden from them. The chip's own password protection does not fix this — it is 32 bits
+sent in the clear and recoverable by listening to one legitimate read. The real answer is
+different hardware: NTAG424 DNA with AES and mutual authentication, a secure element, or a
+phone. Accepted as a limitation of the medium.
+
+**Validation is not bound to a caller.** Whoever holds the card can claim its discount,
+the same way a paper student card works. Binding the nullifier to a student's account
+would fix it and would also stop the card from being portable between devices.
+
+**The contract has tests, not an audit.** Fifteen TXE tests and a written threat model are
+not the same thing as a formal review.
