@@ -6,3 +6,6 @@ authors = [""]
 [dependencies]
 zkfrank_contract = { path = "../zkfrank_contract" }
 aztec = { git="https://github.com/AztecProtocol/aztec-nr", tag="v4.3.0", directory="aztec" }
+# sha256 is not part of the Noir stdlib - ECDSA needs it to hash the signed
+# message. Same tag the ecdsa_r_account_contract in aztec-packages uses.
+sha256 = { tag = "v0.3.0", git = "https://github.com/noir-lang/sha256" }
