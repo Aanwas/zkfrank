@@ -12,6 +12,7 @@ import { EmbeddedWallet } from '@aztec/wallets/embedded';
 import { getInitialTestAccountsData } from '@aztec/accounts/testing';
 import { Contract } from '@aztec/aztec.js/contracts';
 import { AztecAddress } from '@aztec/aztec.js/addresses';
+import { createAztecNodeClient } from '@aztec/aztec.js/node';
 import { loadContractArtifact } from '@aztec/aztec.js/abi';
 
 const NODE_URL = 'http://localhost:8080';
@@ -88,13 +89,30 @@ const [, student] = await Promise.all(
 );
 console.log('student:', student.toString());
 
-// 5. Attach to the already deployed contract. at() is synchronous despite what
-// its docstring claims; the signature in contract/contract.d.ts:21 is
-// authoritative.
+// 5. Attach to the already deployed contract.
+//
+// Contract.at() alone is not enough: it builds a JS handle, while knowing that a
+// contract exists at an address is PXE state, and this PXE was created empty.
+// issue_card.mjs registered the contract in its own PXE, which died with that
+// process. So fetch the instance from the node - which has it, the deployment
+// having been published - and register it here.
 const artifact = loadContractArtifact(
   JSON.parse(readFileSync(new URL(ARTIFACT, import.meta.url), 'utf8')),
 );
-const contract = Contract.at(AztecAddress.fromString(contractAddress), artifact, wallet);
+const node = createAztecNodeClient(NODE_URL);
+const instance = await node.getContract(AztecAddress.fromString(contractAddress));
+if (!instance) {
+  throw new Error(
+    `The node knows no contract at ${contractAddress}. ` +
+      'The local network was probably restarted since the card was issued - ' +
+      'run scripts/issue_card.mjs again to redeploy and reissue.',
+  );
+}
+await wallet.registerContract(instance, artifact);
+
+// at() is synchronous despite what its docstring claims; the signature in
+// contract/contract.d.ts:21 is authoritative.
+const contract = Contract.at(instance.address, artifact, wallet);
 console.log('contract:', contract.address.toString());
 
 // 6. Ask the chain what day it is. The local network warps its clock forward, so
