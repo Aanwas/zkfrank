@@ -1,5 +1,6 @@
 use aztec::{protocol::address::AztecAddress, test::helpers::test_environment::TestEnvironment};
 
+use crate::fixture::{COLLEGE_PUBLIC_KEY_X, COLLEGE_PUBLIC_KEY_Y};
 use zkfrank_contract::StudentId;
 
 // Must match SECONDS_PER_DAY in the contract.
@@ -21,7 +22,11 @@ pub unconstrained fn setup() -> (TestEnvironment, AztecAddress, AztecAddress) {
 
     // Describes the call WITHOUT executing it: which function, which args.
     // `interface()` is generated for us by the #[aztec] macro.
-    let initializer_call = StudentId::interface().constructor(admin);
+    //
+    // The college public key comes from the generated fixture, so every card
+    // signature the tests present was made by the matching private key.
+    let initializer_call =
+        StudentId::interface().constructor(admin, COLLEGE_PUBLIC_KEY_X, COLLEGE_PUBLIC_KEY_Y);
 
     // Deploys the compiled contract and runs the constructor as `admin`,
     // so admin ends up stored as the admin in public storage.

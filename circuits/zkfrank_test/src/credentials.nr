@@ -8,6 +8,7 @@
 //   env.call_private(from, call) - private execution + any enqueued public calls
 // The target address is not passed to these methods; it lives inside the call
 // itself, built with StudentId::at(contract_address).
+use crate::fixture::{IMPOSTOR_SIGNATURE, VALID_SIGNATURE, WRONG_SECRET_SIGNATURE};
 use crate::utils;
 use zkfrank_contract::StudentId;
 
@@ -119,11 +120,15 @@ unconstrained fn student_can_validate_issued_credential() {
     // passed in really is today.
     let day = utils::advance_to_next_day(env);
 
-    // The student submits the RAW id and secret in private execution. They never
-    // reach public state - the contract only recomputes the hash from them.
-    // call_private also runs the public call that validate() enqueues
-    // (assert_valid_today), so this single line exercises the full chain.
-    env.call_private(student, StudentId::at(contract_address).validate(1001, 42, day));
+    // The student submits the RAW id and secret in private execution, together
+    // with the college signature read off their card. None of it reaches public
+    // state - the contract recomputes the hash and checks the signature inside
+    // the circuit. call_private also runs the public call that validate()
+    // enqueues (assert_valid_today), so this single line exercises the full chain.
+    env.call_private(
+        student,
+        StudentId::at(contract_address).validate(1001, 42, VALID_SIGNATURE, day),
+    );
 
     // No assert: if the proof or the public check had failed, this would revert.
 }
@@ -142,12 +147,18 @@ unconstrained fn credential_can_be_used_again_next_day() {
     env.call_public(admin, StudentId::at(contract_address).issue_credential(commitment));
 
     let today = utils::advance_to_next_day(env);
-    env.call_private(student, StudentId::at(contract_address).validate(1001, 42, today));
+    env.call_private(
+        student,
+        StudentId::at(contract_address).validate(1001, 42, VALID_SIGNATURE, today),
+    );
 
-    // Same card, same secret, next day: the day is part of the nullifier, so
-    // this is a different nullifier and the network accepts it.
+    // Same card, same secret, same signature, next day: the day is part of the
+    // nullifier, so this is a different nullifier and the network accepts it.
     let tomorrow = utils::advance_to_next_day(env);
-    env.call_private(student, StudentId::at(contract_address).validate(1001, 42, tomorrow));
+    env.call_private(
+        student,
+        StudentId::at(contract_address).validate(1001, 42, VALID_SIGNATURE, tomorrow),
+    );
 }
 
 // A student must not be able to mint extra uses by simply claiming a different
@@ -166,13 +177,25 @@ unconstrained fn validate_fails_with_wrong_day() {
     let today = utils::advance_to_next_day(env);
 
     // The chain is on `today`, but the student claims it is already tomorrow.
-    env.call_private(student, StudentId::at(contract_address).validate(1001, 42, today + 1));
+    // The signature is genuine, so the private half passes and the revert comes
+    // from the public day check.
+    env.call_private(
+        student,
+        StudentId::at(contract_address).validate(1001, 42, VALID_SIGNATURE, today + 1),
+    );
 }
 
-// The single most important test in the file: the commitment must actually bind
-// the secret. Only the secret differs from the issued credential (42 -> 99), so
-// the contract computes poseidon2([1001, 99]), a completely different value that
-// was never registered - and assert_valid rejects it.
+// The commitment must actually bind the secret. Only the secret differs from the
+// issued credential (42 -> 99), so the contract computes poseidon2([1001, 99]), a
+// completely different value that was never registered - and assert_valid rejects
+// it.
+//
+// The signature here is the college's over poseidon2([1001, 99]): a commitment it
+// would happily sign but never issued. That is deliberate - it lets the call get
+// past the signature check so this test still exercises the registry, which is
+// what it was written for. The realistic attack, where the student presents the
+// signature from their own card, is covered by
+// validate_fails_with_signature_over_another_commitment below.
 //
 // If this test ever passes without reverting, the scheme is broken: anyone
 // knowing just a student id could impersonate that student.
@@ -189,7 +212,10 @@ unconstrained fn validate_fails_with_wrong_secret() {
 
     // Right id, wrong secret.
     let day = utils::advance_to_next_day(env);
-    env.call_private(student, StudentId::at(contract_address).validate(1001, 99, day));
+    env.call_private(
+        student,
+        StudentId::at(contract_address).validate(1001, 99, WRONG_SECRET_SIGNATURE, day),
+    );
 }
 
 // Revocation must hold against the private path too, not just the is_valid
@@ -207,9 +233,14 @@ unconstrained fn student_cannot_validate_revoked_credential() {
     env.call_public(admin, StudentId::at(contract_address).issue_credential(commitment));
     env.call_public(admin, StudentId::at(contract_address).revoke_credential(commitment));
 
-    // Correct id and secret, but the credential is no longer registered.
+    // Correct id, secret and signature, but the credential is no longer
+    // registered. Revocation is a registry fact, so the card itself stays
+    // perfectly valid-looking - the signature on it can never be taken back.
     let day = utils::advance_to_next_day(env);
-    env.call_private(student, StudentId::at(contract_address).validate(1001, 42, day));
+    env.call_private(
+        student,
+        StudentId::at(contract_address).validate(1001, 42, VALID_SIGNATURE, day),
+    );
 }
 
 // One credential, one use PER DAY. validate() pushes a nullifier derived from
@@ -231,8 +262,62 @@ unconstrained fn credential_cannot_be_used_twice_in_one_day() {
     let day = utils::advance_to_next_day(env);
 
     // First use: legitimate, must succeed.
-    env.call_private(student, StudentId::at(contract_address).validate(1001, 42, day));
+    env.call_private(
+        student,
+        StudentId::at(contract_address).validate(1001, 42, VALID_SIGNATURE, day),
+    );
 
     // Second use on the SAME day: the nullifier is already spent.
-    env.call_private(student, StudentId::at(contract_address).validate(1001, 42, day));
+    env.call_private(
+        student,
+        StudentId::at(contract_address).validate(1001, 42, VALID_SIGNATURE, day),
+    );
+}
+
+// A signature from an issuer the contract does not trust must be rejected, even
+// though it is a perfectly well-formed ECDSA signature over the right commitment.
+// This is what stops anyone from minting their own "college": the trust anchor is
+// the key baked into the contract at deployment, not the signature's shape.
+#[test(should_fail_with = "Invalid college signature")]
+unconstrained fn validate_fails_with_a_foreign_issuer_signature() {
+    let (mut env, contract_address, admin) = utils::setup();
+
+    let student = env.create_light_account();
+
+    let commitment =
+        env.view_public(StudentId::at(contract_address).compute_commitment(1001, 42));
+    env.call_public(admin, StudentId::at(contract_address).issue_credential(commitment));
+
+    let day = utils::advance_to_next_day(env);
+
+    // Everything about this call is genuine except who signed the card.
+    env.call_private(
+        student,
+        StudentId::at(contract_address).validate(1001, 42, IMPOSTOR_SIGNATURE, day),
+    );
+}
+
+// The realistic version of validate_fails_with_wrong_secret: a student presents
+// the signature from their OWN card while claiming a different secret. The
+// signature covers poseidon2([1001, 42]), the contract recomputes
+// poseidon2([1001, 99]), and the two do not match - so this never even reaches
+// the registry check.
+#[test(should_fail_with = "Invalid college signature")]
+unconstrained fn validate_fails_with_signature_over_another_commitment() {
+    let (mut env, contract_address, admin) = utils::setup();
+
+    let student = env.create_light_account();
+
+    let commitment =
+        env.view_public(StudentId::at(contract_address).compute_commitment(1001, 42));
+    env.call_public(admin, StudentId::at(contract_address).issue_credential(commitment));
+
+    let day = utils::advance_to_next_day(env);
+
+    // The signature is the college's own, taken off this student's real card -
+    // it just covers a different commitment than the one secret 99 produces.
+    env.call_private(
+        student,
+        StudentId::at(contract_address).validate(1001, 99, VALID_SIGNATURE, day),
+    );
 }

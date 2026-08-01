@@ -11,10 +11,6 @@ export function generateSchoolKeys(){
         privateKeyEncoding: { type: 'pkcs8', format: 'jwk' }
     });
 
-    console.log("=== SCHOOL ADMINISTRATION KEYS GENERATED ===")
-    console.log("School Pub X Ready");
-    console.log("School Pub Y Ready");
-
     return { publicKey, privateKey };
 }
 
