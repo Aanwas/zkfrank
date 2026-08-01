@@ -18,6 +18,7 @@ import { EmbeddedWallet } from '@aztec/wallets/embedded';
 import { getInitialTestAccountsData } from '@aztec/accounts/testing';
 import { Contract } from '@aztec/aztec.js/contracts';
 import { loadContractArtifact } from '@aztec/aztec.js/abi';
+import { poseidon2Hash } from '@aztec/foundation/crypto/poseidon';
 
 import { generateSchoolKeys, signStudentData } from '../backend/src/crypto/ecdsa.js';
 
@@ -61,6 +62,23 @@ function fieldBytes(value) {
     return Buffer.from(value.toString(16).padStart(64, '0'), 'hex');
 }
 
+// A uniformly random Field element.
+//
+// Rejection sampling, not `randomBytes(32) % FIELD_MODULUS`: 2^256 is not a
+// multiple of the modulus, so the remainder favours the bottom 29% of the range
+// by 20%. That matters because this secret is the only thing standing between a
+// published commitment and a brute-force search for the student id behind it.
+// Each draw succeeds with probability ~0.189, so the loop is short but not
+// guaranteed to be - which is exactly why it is a loop.
+function randomField() {
+    while (true) {
+        const candidate = BigInt('0x' + randomBytes(32).toString('hex'));
+        if (candidate < FIELD_MODULUS) {
+            return candidate;
+        }
+    }
+}
+
 const college = loadOrCreateCollegeKeys();
 const publicKeyX = Buffer.from(college.publicKey.x, 'base64url');
 const publicKeyY = Buffer.from(college.publicKey.y, 'base64url');
@@ -92,23 +110,24 @@ const { contract } = await Contract.deploy(wallet, artifact, [
 ]).send({ from: admin });
 console.error('contract:', contract.address.toString());
 
-// 4. The card secret. randomBytes draws from the OS cryptographic source: this
-// is what stops an attacker from recovering the student id from the commitment,
-// which is published in the clear as an argument to issue_credential. A
-// hand-picked secret would fall to a search of a few thousand hashes.
-const secret = BigInt('0x' + randomBytes(32).toString('hex')) % FIELD_MODULUS;
+// 4. The card secret, drawn from the OS cryptographic source. This is what stops
+// an attacker from recovering the student id from the commitment, which is
+// published in the clear as an argument to issue_credential. A hand-picked
+// secret would fall to a search of a few thousand hashes.
+const secret = randomField();
 
-// 5. Ask the contract for commitment = poseidon2([student_id, secret]), so the
-// value signed is bit-for-bit the one validate() will recompute.
-// simulate() resolves to { result, offchainEffects, offchainMessages }.
-const { result: commitment } = await contract.methods
-    .compute_commitment(studentId, secret)
-    .simulate({ from: admin });
+// 5. commitment = poseidon2([student_id, secret]), computed locally.
+//
+// Deliberately not asked of the contract: passing the raw id and secret as
+// arguments to a contract function is the one thing this whole scheme exists to
+// avoid, even in a view. The same poseidon2 the circuit uses is available here,
+// so validate() will recompute this value bit for bit.
+const commitment = (await poseidon2Hash([studentId, secret])).toBigInt();
 
 // 6. Sign the commitment with the college key. The raw 32 bytes are what gets
 // signed, never a string of them: signStudentData hashes whatever it is given
 // and the circuit hashes these bytes, so anything else makes the digests differ.
-const commitmentBytes = fieldBytes(BigInt(commitment));
+const commitmentBytes = fieldBytes(commitment);
 const signature = signStudentData(college.privateKey, commitmentBytes);
 
 if (signature.length !== 64) {

@@ -8,7 +8,9 @@
 //   env.call_private(from, call) - private execution + any enqueued public calls
 // The target address is not passed to these methods; it lives inside the call
 // itself, built with StudentId::at(contract_address).
-use crate::fixture::{IMPOSTOR_SIGNATURE, VALID_SIGNATURE, WRONG_SECRET_SIGNATURE};
+use crate::fixture::{
+    IMPOSTOR_SIGNATURE, VALID_COMMITMENT, VALID_SIGNATURE, WRONG_SECRET_SIGNATURE,
+};
 use crate::utils;
 use zkfrank_contract::StudentId;
 
@@ -20,14 +22,12 @@ unconstrained fn issued_credential_is_valid() {
     // Ask the contract to hash (student_id=1001, secret=42) for us, so the test
     // uses exactly the same commitment the contract would compute internally.
     // This is a #[view] function, so it costs nothing and changes no state.
-    let commitment =
-        env.view_public(StudentId::at(contract_address).compute_commitment(1001, 42));
 
     // The university issues it. Sent by `admin`, so the admin check passes.
-    env.call_public(admin, StudentId::at(contract_address).issue_credential(commitment));
+    env.call_public(admin, StudentId::at(contract_address).issue_credential(VALID_COMMITMENT));
 
     // Read it back: the commitment must now be marked valid in public storage.
-    let valid = env.view_public(StudentId::at(contract_address).is_valid(commitment));
+    let valid = env.view_public(StudentId::at(contract_address).is_valid(VALID_COMMITMENT));
     assert(valid);
 }
 
@@ -47,13 +47,11 @@ unconstrained fn non_admin_cannot_issue() {
     // Alice is an ordinary user, not the university.
     let alice = env.create_light_account();
 
-    let commitment =
-        env.view_public(StudentId::at(contract_address).compute_commitment(1001, 42));
 
     // The first argument of call_public is the sender. Passing `alice` here is
     // the whole point of the test: the admin check inside issue_credential
     // compares self.msg_sender() against the stored admin, so this must revert.
-    env.call_public(alice, StudentId::at(contract_address).issue_credential(commitment));
+    env.call_public(alice, StudentId::at(contract_address).issue_credential(VALID_COMMITMENT));
 
     // No assert below - the revert IS the assertion.
 }
@@ -69,17 +67,15 @@ unconstrained fn non_admin_cannot_issue() {
 unconstrained fn revoked_credential_is_not_valid() {
     let (env, contract_address, admin) = utils::setup();
 
-    let commitment =
-        env.view_public(StudentId::at(contract_address).compute_commitment(1001, 42));
 
     // Issue, so there is something real to revoke.
-    env.call_public(admin, StudentId::at(contract_address).issue_credential(commitment));
+    env.call_public(admin, StudentId::at(contract_address).issue_credential(VALID_COMMITMENT));
 
     // Now take it back.
-    env.call_public(admin, StudentId::at(contract_address).revoke_credential(commitment));
+    env.call_public(admin, StudentId::at(contract_address).revoke_credential(VALID_COMMITMENT));
 
     // `!` is logical NOT: we expect the credential to be invalid now.
-    let valid = env.view_public(StudentId::at(contract_address).is_valid(commitment));
+    let valid = env.view_public(StudentId::at(contract_address).is_valid(VALID_COMMITMENT));
     assert(!valid);
 }
 
@@ -92,15 +88,13 @@ unconstrained fn non_admin_cannot_revoke() {
 
     let alice = env.create_light_account();
 
-    let commitment =
-        env.view_public(StudentId::at(contract_address).compute_commitment(1001, 42));
 
     // A genuine credential, issued properly by the university.
-    env.call_public(admin, StudentId::at(contract_address).issue_credential(commitment));
+    env.call_public(admin, StudentId::at(contract_address).issue_credential(VALID_COMMITMENT));
 
     // Alice tries to revoke it. She is not the admin, so this must revert
     // and the test passes because of that revert.
-    env.call_public(alice, StudentId::at(contract_address).revoke_credential(commitment));
+    env.call_public(alice, StudentId::at(contract_address).revoke_credential(VALID_COMMITMENT));
 }
 
 // The core happy path of the whole contract: a student proves knowledge of the
@@ -112,9 +106,7 @@ unconstrained fn student_can_validate_issued_credential() {
     // A separate account: the proof is produced by the student, not the admin.
     let student = env.create_light_account();
 
-    let commitment =
-        env.view_public(StudentId::at(contract_address).compute_commitment(1001, 42));
-    env.call_public(admin, StudentId::at(contract_address).issue_credential(commitment));
+    env.call_public(admin, StudentId::at(contract_address).issue_credential(VALID_COMMITMENT));
 
     // Pin the chain to a known day, since the contract now checks that the day
     // passed in really is today.
@@ -142,9 +134,7 @@ unconstrained fn credential_can_be_used_again_next_day() {
 
     let student = env.create_light_account();
 
-    let commitment =
-        env.view_public(StudentId::at(contract_address).compute_commitment(1001, 42));
-    env.call_public(admin, StudentId::at(contract_address).issue_credential(commitment));
+    env.call_public(admin, StudentId::at(contract_address).issue_credential(VALID_COMMITMENT));
 
     let today = utils::advance_to_next_day(env);
     env.call_private(
@@ -170,9 +160,7 @@ unconstrained fn validate_fails_with_wrong_day() {
 
     let student = env.create_light_account();
 
-    let commitment =
-        env.view_public(StudentId::at(contract_address).compute_commitment(1001, 42));
-    env.call_public(admin, StudentId::at(contract_address).issue_credential(commitment));
+    env.call_public(admin, StudentId::at(contract_address).issue_credential(VALID_COMMITMENT));
 
     let today = utils::advance_to_next_day(env);
 
@@ -206,9 +194,7 @@ unconstrained fn validate_fails_with_wrong_secret() {
     let student = env.create_light_account();
 
     // The credential the university actually issued.
-    let commitment =
-        env.view_public(StudentId::at(contract_address).compute_commitment(1001, 42));
-    env.call_public(admin, StudentId::at(contract_address).issue_credential(commitment));
+    env.call_public(admin, StudentId::at(contract_address).issue_credential(VALID_COMMITMENT));
 
     // Right id, wrong secret.
     let day = utils::advance_to_next_day(env);
@@ -226,12 +212,10 @@ unconstrained fn student_cannot_validate_revoked_credential() {
 
     let student = env.create_light_account();
 
-    let commitment =
-        env.view_public(StudentId::at(contract_address).compute_commitment(1001, 42));
 
     // Issue, then take it back.
-    env.call_public(admin, StudentId::at(contract_address).issue_credential(commitment));
-    env.call_public(admin, StudentId::at(contract_address).revoke_credential(commitment));
+    env.call_public(admin, StudentId::at(contract_address).issue_credential(VALID_COMMITMENT));
+    env.call_public(admin, StudentId::at(contract_address).revoke_credential(VALID_COMMITMENT));
 
     // Correct id, secret and signature, but the credential is no longer
     // registered. Revocation is a registry fact, so the card itself stays
@@ -255,9 +239,7 @@ unconstrained fn credential_cannot_be_used_twice_in_one_day() {
 
     let student = env.create_light_account();
 
-    let commitment =
-        env.view_public(StudentId::at(contract_address).compute_commitment(1001, 42));
-    env.call_public(admin, StudentId::at(contract_address).issue_credential(commitment));
+    env.call_public(admin, StudentId::at(contract_address).issue_credential(VALID_COMMITMENT));
 
     let day = utils::advance_to_next_day(env);
 
@@ -284,9 +266,7 @@ unconstrained fn validate_fails_with_a_foreign_issuer_signature() {
 
     let student = env.create_light_account();
 
-    let commitment =
-        env.view_public(StudentId::at(contract_address).compute_commitment(1001, 42));
-    env.call_public(admin, StudentId::at(contract_address).issue_credential(commitment));
+    env.call_public(admin, StudentId::at(contract_address).issue_credential(VALID_COMMITMENT));
 
     let day = utils::advance_to_next_day(env);
 
@@ -308,9 +288,7 @@ unconstrained fn validate_fails_with_signature_over_another_commitment() {
 
     let student = env.create_light_account();
 
-    let commitment =
-        env.view_public(StudentId::at(contract_address).compute_commitment(1001, 42));
-    env.call_public(admin, StudentId::at(contract_address).issue_credential(commitment));
+    env.call_public(admin, StudentId::at(contract_address).issue_credential(VALID_COMMITMENT));
 
     let day = utils::advance_to_next_day(env);
 

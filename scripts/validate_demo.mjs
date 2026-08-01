@@ -21,12 +21,27 @@ const STATE_FILE = new URL('../.zkfrank-state.json', import.meta.url);
 
 const PI_HOST = requireEnv('ZKFRANK_PI_HOST');
 const PI_PORT = requireEnv('ZKFRANK_PI_PORT');
-const PI_SCRIPT = requireEnv('ZKFRANK_PI_SCRIPT');
+const PI_SCRIPT = requireRemotePath('ZKFRANK_PI_SCRIPT');
 
 function requireEnv(name) {
   const value = process.env[name];
   if (!value) {
     throw new Error(`Missing required environment variable: ${name}`);
+  }
+  return value;
+}
+
+// execFileSync keeps the local shell out of it, but ssh's last argument is run by
+// the shell on the far side, and PI_SCRIPT is interpolated into it. So the path
+// is restricted to characters that cannot mean anything to a shell. Nobody is
+// attacking their own .env today; this is here so the pattern does not get
+// copied somewhere it matters.
+function requireRemotePath(name) {
+  const value = requireEnv(name);
+  // ~ is allowed: the remote shell expands it to a home directory and can do
+  // nothing else with it.
+  if (!/^[\w~./-]+$/.test(value)) {
+    throw new Error(`${name} must be a plain path, got ${JSON.stringify(value)}`);
   }
   return value;
 }
