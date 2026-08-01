@@ -4,6 +4,10 @@
 *.secret
 *.pem
 *.key
+# The college issuing keypair. Whoever holds it can mint valid student cards.
+college-key.json
+# Deployed contract address, written by issue_card.mjs and read by validate_demo.
+.zkfrank-state.json
 
 # Node.js
 node_modules/
